@@ -285,6 +285,7 @@ async function listBooks() {
     state.adminCode = "";
     dom.publishForm.hidden = true;
     dom.adminCodeInput.value = "";
+    dom.adminCodeInput.readOnly = false;
     persistSession();
   }
   state.books = response.books || [];
@@ -648,7 +649,7 @@ function normalizeLineText(parts) {
 }
 
 function extractPageText(items) {
-  if (!items?.length) return "";
+  if (!items?.length) return [];
   const sorted = [...items].sort((a, b) => {
     const ay = a.transform?.[5] || 0;
     const by = b.transform?.[5] || 0;
@@ -1297,6 +1298,12 @@ async function unlockAdmin() {
     showToast("Entre le code administrateur");
     return;
   }
+
+  const previousLabel = dom.unlockAdminBtn.textContent;
+  dom.unlockAdminBtn.disabled = true;
+  dom.adminCodeInput.disabled = true;
+  dom.unlockAdminBtn.textContent = "Vérification...";
+
   try {
     const response = await jsonp("listBooks", { email: state.email, adminCode: code });
     if (!response?.ok || response.adminAuthorized !== true) throw new Error(response?.message || "Code invalide.");
@@ -1304,6 +1311,7 @@ async function unlockAdmin() {
     state.adminCode = code;
     state.books = response.books || [];
     dom.adminCodeInput.value = code;
+    dom.adminCodeInput.readOnly = true;
     dom.publishForm.hidden = false;
     cacheBooks(state.books, true);
     persistSession();
@@ -1316,8 +1324,13 @@ async function unlockAdmin() {
     state.adminUnlocked = false;
     state.adminCode = "";
     dom.publishForm.hidden = true;
+    dom.adminCodeInput.readOnly = false;
     persistSession();
     showToast("Code administrateur invalide");
+  } finally {
+    dom.unlockAdminBtn.disabled = false;
+    dom.adminCodeInput.disabled = false;
+    dom.unlockAdminBtn.textContent = previousLabel;
   }
 }
 
@@ -1424,6 +1437,7 @@ function logoutToGate({ clearRemember = false } = {}) {
   state.notesMap = {};
   state.lastSaveSignature = "";
   dom.adminCodeInput.value = "";
+  dom.adminCodeInput.readOnly = false;
   dom.publishForm.hidden = true;
   dom.controlPanel.hidden = true;
   dom.menuBackdrop.hidden = true;
@@ -1460,6 +1474,7 @@ async function handleLogin(event) {
     persistSession();
     dom.adminPanel.hidden = !state.isAdminCandidate;
     dom.publishForm.hidden = true;
+    dom.adminCodeInput.readOnly = false;
     setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
     switchScreen("library");
     await refreshBooks({ useCache: true, silentError: true });
@@ -1497,6 +1512,7 @@ async function restoreSessionIfPossible() {
     state.adminCode = state.adminUnlocked ? String(saved.adminCode || "") : "";
     dom.adminPanel.hidden = !state.isAdminCandidate;
     dom.adminCodeInput.value = state.adminCode;
+    dom.adminCodeInput.readOnly = !!state.adminUnlocked;
     dom.publishForm.hidden = !state.adminUnlocked;
     switchScreen("library");
     setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
