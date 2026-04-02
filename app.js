@@ -7,16 +7,19 @@ const FONT_CLASSES = ["font-small", "font-medium", "font-large", "font-xlarge"];
 
 const dom = {
   gate: document.getElementById("gate"),
-  library: document.getElementById("library"),
-  reader: document.getElementById("reader"),
   loginForm: document.getElementById("loginForm"),
   emailInput: document.getElementById("emailInput"),
   loginBtn: document.getElementById("loginBtn"),
   gateMessage: document.getElementById("gateMessage"),
+  gateBusy: document.getElementById("gateBusy"),
+  gateBusyText: document.getElementById("gateBusyText"),
+
+  library: document.getElementById("library"),
   libraryMeta: document.getElementById("libraryMeta"),
   bookList: document.getElementById("bookList"),
   refreshBooksBtn: document.getElementById("refreshBooksBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
+
   adminPanel: document.getElementById("adminPanel"),
   adminCodeInput: document.getElementById("adminCodeInput"),
   unlockAdminBtn: document.getElementById("unlockAdminBtn"),
@@ -25,12 +28,15 @@ const dom = {
   bookIdInput: document.getElementById("bookIdInput"),
   bookAuthorInput: document.getElementById("bookAuthorInput"),
   bookPdfInput: document.getElementById("bookPdfInput"),
+  bookCoverInput: document.getElementById("bookCoverInput"),
   publishNowInput: document.getElementById("publishNowInput"),
   publishBtn: document.getElementById("publishBtn"),
   publishStatus: document.getElementById("publishStatus"),
   publishProgress: document.getElementById("publishProgress"),
-  adminBooksList: document.getElementById("adminBooksList"),
   reloadAdminBooksBtn: document.getElementById("reloadAdminBooksBtn"),
+  adminBooksList: document.getElementById("adminBooksList"),
+
+  reader: document.getElementById("reader"),
   backToLibraryBtn: document.getElementById("backToLibraryBtn"),
   menuToggle: document.getElementById("menuToggle"),
   menuBackdrop: document.getElementById("menuBackdrop"),
@@ -49,20 +55,21 @@ const dom = {
   fontMinusBtn: document.getElementById("fontMinusBtn"),
   fontPlusBtn: document.getElementById("fontPlusBtn"),
   bookmarkBtn: document.getElementById("bookmarkBtn"),
-  bookmarkList: document.getElementById("bookmarkList"),
   saveBtn: document.getElementById("saveBtn"),
   themeBtn: document.getElementById("themeBtn"),
-  switchUserBtn: document.getElementById("switchUserBtn"),
-  saveStatus: document.getElementById("saveStatus"),
+  bookmarkList: document.getElementById("bookmarkList"),
   noteInput: document.getElementById("pageNoteInput"),
   saveNoteBtn: document.getElementById("saveNoteBtn"),
+  newNoteBtn: document.getElementById("newNoteBtn"),
+  notesList: document.getElementById("notesList"),
   noteStatus: document.getElementById("noteStatus"),
+  saveStatus: document.getElementById("saveStatus"),
   viewerShell: document.getElementById("viewerShell"),
   readingSurface: document.getElementById("readingSurface"),
   textViewer: document.getElementById("textViewer"),
   pdfViewer: document.getElementById("pdfViewer"),
   pdfCanvas: document.getElementById("pdfCanvas"),
-  toast: document.getElementById("toast")
+  toast: document.getElementById("toast"),
 };
 
 const state = {
@@ -72,23 +79,30 @@ const state = {
   adminCode: "",
   books: [],
   currentBook: null,
-  currentPage: 1,
-  totalPages: 0,
   pdfDoc: null,
   textDoc: null,
-  pdfUrl: "",
-  jsonUrl: "",
+  totalPages: 0,
+  currentPage: 1,
   mode: CONFIG.defaultReaderMode || "text",
-  fontIndex: 1,
   theme: "paper",
+  fontIndex: 1,
+  pdfZoomMultiplier: 1,
   renderToken: 0,
   saveTimer: null,
   lastSaveSignature: "",
-  toastTimer: null
+  toastTimer: null,
+  bookmarks: [],
+  notes: [],
+  editingNoteId: "",
+  fallbackNoticeShownForPage: 0,
 };
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function slugify(value) {
@@ -101,6 +115,15 @@ function slugify(value) {
     .slice(0, 80);
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function showToast(message) {
   if (!message) return;
   dom.toast.textContent = message;
@@ -108,86 +131,124 @@ function showToast(message) {
   if (state.toastTimer) window.clearTimeout(state.toastTimer);
   state.toastTimer = window.setTimeout(() => {
     dom.toast.hidden = true;
-  }, 2200);
+  }, 2300);
 }
 
-function setGateMessage(message, type = "") {
+function setGateMessage(message, kind = "") {
   dom.gateMessage.textContent = message || "";
-  dom.gateMessage.className = "gate-message" + (type ? ` ${type}` : "");
+  dom.gateMessage.className = `gate-message${kind ? ` ${kind}` : ""}`;
 }
 
-function setSaveStatus(message, positive = false) {
-  dom.saveStatus.textContent = message;
-  dom.saveStatus.style.color = positive ? "var(--success)" : "";
+function setGateBusy(isBusy, message = "") {
+  dom.loginBtn.disabled = !!isBusy;
+  dom.gateBusy.hidden = !isBusy;
+  if (message) dom.gateBusyText.textContent = message;
 }
 
-function setPublishStatus(message, positive = false) {
-  dom.publishStatus.textContent = message;
-  dom.publishStatus.style.color = positive ? "var(--success)" : "";
+function setSaveStatus(message, kind = "") {
+  dom.saveStatus.textContent = message || "";
+  dom.saveStatus.className = `save-status${kind ? ` status-${kind}` : ""}`;
 }
 
-function switchScreen(screen) {
-  dom.gate.hidden = screen !== "gate";
-  dom.library.hidden = screen !== "library";
-  dom.reader.hidden = screen !== "reader";
+function setNoteStatus(message, kind = "") {
+  dom.noteStatus.textContent = message || "";
+  dom.noteStatus.className = `save-status${kind ? ` status-${kind}` : ""}`;
 }
 
-function toggleMenu(open) {
-  const shouldOpen = typeof open === "boolean" ? open : dom.controlPanel.hidden;
+function setPublishStatus(message, success = false) {
+  dom.publishStatus.textContent = message || "";
+  dom.publishStatus.className = success ? "save-status status-success" : "save-status";
+}
+
+function switchScreen(name) {
+  dom.gate.hidden = name !== "gate";
+  dom.library.hidden = name !== "library";
+  dom.reader.hidden = name !== "reader";
+}
+
+function toggleMenu(force) {
+  const shouldOpen = typeof force === "boolean" ? force : dom.controlPanel.hidden;
   dom.controlPanel.hidden = !shouldOpen;
   dom.menuBackdrop.hidden = !shouldOpen;
   dom.menuToggle.setAttribute("aria-expanded", String(shouldOpen));
 }
 
-function rebuildReadingSurfaceClasses() {
-  dom.readingSurface.classList.remove("theme-paper", "theme-night", ...FONT_CLASSES);
-  dom.readingSurface.classList.add(`theme-${state.theme}`, FONT_CLASSES[state.fontIndex]);
-}
+function blockEasyActions() {
+  const shouldBlock = (event) => {
+    if (dom.reader.hidden) return false;
+    const target = event.target;
+    if (target && target.closest && target.closest("#controlPanel")) return false;
+    if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return false;
+    return true;
+  };
 
-function buildJsonpUrl(action, params = {}) {
-  const url = new URL(CONFIG.appsScriptUrl);
-  const prefix = `cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  url.searchParams.set("action", action);
-  url.searchParams.set("prefix", prefix);
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
+  const block = (event) => {
+    if (shouldBlock(event)) event.preventDefault();
+  };
+
+  document.addEventListener("contextmenu", block);
+  document.addEventListener("dragstart", block);
+  document.addEventListener("selectstart", block);
+  document.addEventListener("copy", block);
+  document.addEventListener("cut", block);
+  document.addEventListener("paste", (event) => {
+    if (shouldBlock(event)) event.preventDefault();
   });
-  return { url: url.toString(), prefix };
 }
 
 function jsonp(action, params = {}) {
   return new Promise((resolve, reject) => {
-    const { url, prefix } = buildJsonpUrl(action, params);
-    const script = document.createElement("script");
-    let settled = false;
-
-    function cleanup() {
-      delete window[prefix];
-      script.remove();
+    const baseUrl = CONFIG.appsScriptUrl;
+    if (!baseUrl) {
+      reject(new Error("URL Apps Script absente."));
+      return;
     }
 
-    window[prefix] = (payload) => {
-      settled = true;
+    const callbackName = `jsonp_cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const url = new URL(baseUrl);
+    url.searchParams.set("action", action);
+    url.searchParams.set("prefix", callbackName);
+    url.searchParams.set("_ts", String(Date.now()));
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        url.searchParams.set(key, String(value));
+      }
+    });
+
+    const script = document.createElement("script");
+    const cleanup = () => {
+      delete window[callbackName];
+      script.remove();
+    };
+
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Délai dépassé lors de la connexion au service."));
+    }, 20000);
+
+    window[callbackName] = (payload) => {
+      window.clearTimeout(timeoutId);
       cleanup();
       resolve(payload);
     };
 
     script.onerror = () => {
-      if (settled) return;
-      settled = true;
+      window.clearTimeout(timeoutId);
       cleanup();
-      reject(new Error("Erreur réseau Apps Script."));
+      reject(new Error("Impossible de joindre le service."));
     };
 
-    script.src = url;
+    script.src = url.toString();
     document.body.appendChild(script);
+  });
+}
 
-    window.setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error("Délai dépassé."));
-    }, 20000);
+async function postAdminAction(formData) {
+  await fetch(CONFIG.appsScriptUrl, {
+    method: "POST",
+    mode: "no-cors",
+    body: formData,
   });
 }
 
@@ -195,82 +256,22 @@ async function auth(email) {
   return jsonp("auth", { email });
 }
 
-async function listBooks() {
+async function refreshBooks() {
+  if (!state.email) return;
   const response = await jsonp("listBooks", {
     email: state.email,
-    adminCode: state.adminUnlocked ? state.adminCode : ""
+    adminCode: state.adminUnlocked ? state.adminCode : "",
   });
-  if (!response?.ok) throw new Error(response?.message || "Impossible de charger la bibliothèque.");
-  state.books = response.books || [];
-  return state.books;
+  if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
+  state.books = Array.isArray(response.books) ? response.books : [];
+  renderBookList();
+  renderAdminBooks();
 }
 
 async function fetchProgress(bookId) {
   const response = await jsonp("getProgress", { email: state.email, bookId });
-  return response?.ok ? response.progress || null : null;
-}
-
-function localKey(prefix) {
-  const bookId = state.currentBook?.bookId || "";
-  return `${prefix}:${state.email}:${bookId}`;
-}
-
-function getBookmarks() {
-  try {
-    return JSON.parse(localStorage.getItem(localKey("bookmarks")) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function saveBookmarks(bookmarks) {
-  localStorage.setItem(localKey("bookmarks"), JSON.stringify(bookmarks));
-}
-
-function getNotes() {
-  try {
-    return JSON.parse(localStorage.getItem(localKey("notes")) || "{}");
-  } catch {
-    return {};
-  }
-}
-
-function saveNotesMap(notes) {
-  localStorage.setItem(localKey("notes"), JSON.stringify(notes));
-}
-
-function renderBookmarks() {
-  const bookmarks = getBookmarks();
-  if (!bookmarks.length) {
-    dom.bookmarkList.innerHTML = `<div class="empty-state">Aucun signet pour ce livre.</div>`;
-    return;
-  }
-  dom.bookmarkList.innerHTML = bookmarks
-    .sort((a, b) => a.page - b.page)
-    .map((bookmark) => `
-      <div class="bookmark-chip">
-        <button type="button" data-bookmark-page="${bookmark.page}">Page ${bookmark.page}</button>
-        <button type="button" data-remove-bookmark="${bookmark.page}">Retirer</button>
-      </div>
-    `)
-    .join("");
-}
-
-function updateUiLabels() {
-  const totalPages = state.totalPages || 0;
-  dom.pageLabel.textContent = `Page ${state.currentPage} / ${totalPages}`;
-  dom.pageInput.value = String(state.currentPage || 1);
-  const progressPercent = totalPages ? Math.round((state.currentPage / totalPages) * 1000) / 10 : 0;
-  dom.progressText.textContent = `${progressPercent} %`;
-  dom.progressBar.style.width = `${Math.max(0, Math.min(100, progressPercent))}%`;
-  dom.modeToggleBtn.textContent = state.mode === "text" ? "Mode PDF" : "Mode texte";
-  dom.themeBtn.textContent = state.theme === "paper" ? "Mode nuit" : "Mode clair";
-  dom.docLabel.textContent = state.currentBook?.title || "Document";
-  dom.prevBtn.disabled = state.currentPage <= 1;
-  dom.nextBtn.disabled = state.currentPage >= totalPages;
-  const notes = getNotes();
-  dom.noteInput.value = notes[String(state.currentPage)] || "";
-  renderBookmarks();
+  if (!response?.ok) return null;
+  return response.progress || null;
 }
 
 function buildProgressPayload() {
@@ -281,7 +282,7 @@ function buildProgressPayload() {
     title: state.currentBook?.title,
     currentPage: state.currentPage,
     totalPages: state.totalPages,
-    progressPercent
+    progressPercent,
   };
 }
 
@@ -296,17 +297,196 @@ async function saveProgress({ immediate = false } = {}) {
     const response = await jsonp("saveProgress", payload);
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
     state.lastSaveSignature = signature;
-    setSaveStatus("Progression enregistrée", true);
+    setSaveStatus("Progression enregistrée", "success");
   } catch (error) {
     console.error(error);
-    setSaveStatus("Sauvegarde impossible");
+    setSaveStatus("Sauvegarde impossible", "error");
     showToast("Sauvegarde impossible");
   }
 }
 
 function scheduleSave() {
   if (state.saveTimer) window.clearTimeout(state.saveTimer);
-  state.saveTimer = window.setTimeout(() => saveProgress(), CONFIG.autoSaveDelayMs || 450);
+  state.saveTimer = window.setTimeout(() => {
+    saveProgress();
+  }, CONFIG.autoSaveDelayMs || 450);
+}
+
+async function loadBookmarks() {
+  if (!state.currentBook) return;
+  const response = await jsonp("listBookmarks", {
+    email: state.email,
+    bookId: state.currentBook.bookId,
+  });
+  state.bookmarks = response?.ok && Array.isArray(response.bookmarks) ? response.bookmarks : [];
+  renderBookmarks();
+}
+
+async function addBookmark() {
+  if (!state.currentBook) return;
+  const existing = state.bookmarks.some((bookmark) => Number(bookmark.page) === state.currentPage);
+  if (existing) {
+    showToast(`Un signet existe déjà à la page ${state.currentPage}`);
+    return;
+  }
+  try {
+    const response = await jsonp("addBookmark", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page: state.currentPage,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible d'ajouter le signet.");
+    await loadBookmarks();
+    showToast(`Signet ajouté à la page ${state.currentPage}`);
+  } catch (error) {
+    console.error(error);
+    showToast("Impossible d'ajouter le signet");
+  }
+}
+
+async function removeBookmark(page) {
+  if (!state.currentBook) return;
+  try {
+    const response = await jsonp("removeBookmark", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer le signet.");
+    await loadBookmarks();
+    showToast("Signet supprimé");
+  } catch (error) {
+    console.error(error);
+    showToast("Impossible de supprimer le signet");
+  }
+}
+
+function renderBookmarks() {
+  if (!state.bookmarks.length) {
+    dom.bookmarkList.innerHTML = `<div class="empty-state">Aucun signet pour ce livre.</div>`;
+    return;
+  }
+
+  const sorted = [...state.bookmarks].sort((a, b) => Number(a.page) - Number(b.page));
+  dom.bookmarkList.innerHTML = sorted.map((bookmark) => `
+    <div class="bookmark-chip">
+      <button type="button" data-bookmark-page="${bookmark.page}">Page ${bookmark.page}</button>
+      <button type="button" data-remove-bookmark="${bookmark.page}">Retirer</button>
+    </div>
+  `).join("");
+}
+
+async function loadNotes() {
+  if (!state.currentBook) return;
+  const response = await jsonp("listNotes", {
+    email: state.email,
+    bookId: state.currentBook.bookId,
+  });
+  state.notes = response?.ok && Array.isArray(response.notes) ? response.notes : [];
+  renderNotes();
+}
+
+function getCurrentPageNotes() {
+  return state.notes.filter((note) => Number(note.page) === state.currentPage);
+}
+
+function renderNotes() {
+  const pageNotes = getCurrentPageNotes();
+  if (!pageNotes.length) {
+    dom.notesList.innerHTML = `<div class="empty-state">Aucune note pour cette page.</div>`;
+    return;
+  }
+
+  dom.notesList.innerHTML = pageNotes
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+    .map((note) => `
+      <div class="note-card">
+        <div>
+          <div class="note-card-meta">${escapeHtml(formatDateTime(note.updatedAt || note.createdAt))}</div>
+          <div class="note-card-text">${escapeHtml(note.noteText)}</div>
+        </div>
+        <div class="note-card-actions">
+          <button type="button" data-edit-note="${escapeHtml(note.noteId)}">Modifier</button>
+          <button type="button" data-delete-note="${escapeHtml(note.noteId)}">Supprimer</button>
+        </div>
+      </div>
+    `).join("");
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("fr-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function resetNoteEditor() {
+  state.editingNoteId = "";
+  dom.noteInput.value = "";
+  setNoteStatus("");
+}
+
+function startEditingNote(noteId) {
+  const note = state.notes.find((item) => item.noteId === noteId);
+  if (!note) return;
+  state.editingNoteId = note.noteId;
+  dom.noteInput.value = note.noteText || "";
+  dom.noteInput.focus();
+  setNoteStatus("Modification en cours");
+}
+
+async function saveCurrentNote() {
+  if (!state.currentBook) return;
+  const noteText = dom.noteInput.value.trim();
+  if (!noteText) {
+    setNoteStatus("La note est vide", "error");
+    return;
+  }
+  if (noteText.length > 1200) {
+    setNoteStatus("La note est trop longue", "error");
+    return;
+  }
+
+  try {
+    const response = await jsonp("saveNote", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page: state.currentPage,
+      noteId: state.editingNoteId,
+      noteText,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible d'enregistrer la note.");
+    await loadNotes();
+    resetNoteEditor();
+    setNoteStatus("Note enregistrée", "success");
+  } catch (error) {
+    console.error(error);
+    setNoteStatus("Sauvegarde impossible", "error");
+  }
+}
+
+async function deleteNote(noteId) {
+  if (!state.currentBook) return;
+  try {
+    const response = await jsonp("deleteNote", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      noteId,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer la note.");
+    if (state.editingNoteId === noteId) resetNoteEditor();
+    await loadNotes();
+    setNoteStatus("Note supprimée", "success");
+  } catch (error) {
+    console.error(error);
+    setNoteStatus("Suppression impossible", "error");
+  }
 }
 
 function computePublicAssetUrl(path) {
@@ -314,144 +494,11 @@ function computePublicAssetUrl(path) {
   return `./${String(path).replace(/^\.\//, "").replace(/^\//, "")}`;
 }
 
-async function loadTextJson(book) {
-  if (!book.jsonPath) return null;
-  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "no-store" });
-  if (!response.ok) return null;
-  return response.json();
-}
-
-async function loadPdfDocument(book) {
-  if (state.pdfDoc && state.currentBook?.bookId === book.bookId) return state.pdfDoc;
-  const pdfUrl = computePublicAssetUrl(book.pdfPath);
-  state.pdfUrl = pdfUrl;
-  const loadingTask = pdfjsLib.getDocument({ url: pdfUrl, disableAutoFetch: false, disableStream: false });
-  state.pdfDoc = await loadingTask.promise;
-  return state.pdfDoc;
-}
-
-function paragraphizeText(rawText) {
-  return String(rawText || "")
-    .split(/\n{2,}/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
-    .join("");
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-async function renderTextPage(pageNumber) {
-  const page = state.textDoc?.pages?.[pageNumber - 1];
-  const text = page?.text || "";
-  dom.textViewer.innerHTML = `
-    <article class="text-page">
-      <h2>Page ${pageNumber}</h2>
-      <div class="text-content">${text ? paragraphizeText(text) : '<p class="empty-text">Aucun texte exploitable pour cette page.</p>'}</div>
-    </article>
-  `;
-}
-
-function computeFitScale(page) {
-  const shellWidth = Math.max(280, dom.viewerShell.clientWidth - 20);
-  const viewport = page.getViewport({ scale: 1 });
-  return shellWidth / viewport.width;
-}
-
-async function renderPdfPage(pageNumber) {
-  const renderToken = ++state.renderToken;
-  const page = await state.pdfDoc.getPage(pageNumber);
-  const scale = computeFitScale(page);
-  const viewport = page.getViewport({ scale });
-  const outputScale = window.devicePixelRatio || 1;
-  const context = dom.pdfCanvas.getContext("2d", { alpha: false });
-
-  dom.pdfCanvas.width = Math.floor(viewport.width * outputScale);
-  dom.pdfCanvas.height = Math.floor(viewport.height * outputScale);
-  dom.pdfCanvas.style.width = `${viewport.width}px`;
-  dom.pdfCanvas.style.height = `${viewport.height}px`;
-
-  const renderContext = {
-    canvasContext: context,
-    viewport,
-    transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
-  };
-
-  context.setTransform(1, 0, 0, 1, 0, 0);
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, dom.pdfCanvas.width, dom.pdfCanvas.height);
-
-  await page.render(renderContext).promise;
-  if (renderToken !== state.renderToken) return;
-}
-
-async function renderCurrentPage() {
-  if (!state.currentBook) return;
-  updateUiLabels();
-  rebuildReadingSurfaceClasses();
-
-  if (state.mode === "text" && state.textDoc) {
-    dom.textViewer.hidden = false;
-    dom.pdfViewer.hidden = true;
-    await renderTextPage(state.currentPage);
-  } else {
-    dom.textViewer.hidden = true;
-    dom.pdfViewer.hidden = false;
-    await renderPdfPage(state.currentPage);
+function coverHtml(book, className = "book-cover") {
+  if (book.coverPath) {
+    return `<div class="${className}"><img src="${escapeHtml(computePublicAssetUrl(book.coverPath))}" alt="Couverture de ${escapeHtml(book.title)}" loading="lazy"></div>`;
   }
-
-  dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
-}
-
-async function goToPage(pageNumber, { save = true } = {}) {
-  if (!state.totalPages) return;
-  const nextPage = Math.max(1, Math.min(state.totalPages, Number(pageNumber) || 1));
-  if (nextPage === state.currentPage && !save) return;
-  state.currentPage = nextPage;
-  await renderCurrentPage();
-  if (save) scheduleSave();
-}
-
-async function openBook(book) {
-  state.currentBook = book;
-  state.currentPage = 1;
-  state.totalPages = 0;
-  state.lastSaveSignature = "";
-  state.pdfDoc = null;
-  state.textDoc = null;
-
-  setSaveStatus("Chargement...");
-  switchScreen("reader");
-  toggleMenu(false);
-
-  const progress = await fetchProgress(book.bookId);
-  const jsonDoc = await loadTextJson(book).catch(() => null);
-  state.textDoc = jsonDoc;
-
-  if (jsonDoc?.totalPages) {
-    state.totalPages = Number(jsonDoc.totalPages) || 0;
-  }
-
-  if (!state.totalPages || state.mode === "pdf" || !jsonDoc) {
-    const pdfDoc = await loadPdfDocument(book);
-    state.totalPages = pdfDoc.numPages;
-  }
-
-  if (jsonDoc && !state.textDoc) state.textDoc = jsonDoc;
-  if (!jsonDoc) state.mode = "pdf";
-  else if ((CONFIG.defaultReaderMode || "text") === "text") state.mode = "text";
-
-  const restoredPage = progress?.currentPage ? Number(progress.currentPage) : 1;
-  state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
-  await renderCurrentPage();
-  setSaveStatus("Prêt");
+  return `<div class="cover-placeholder">${escapeHtml((book.title || "?").trim().slice(0, 1).toUpperCase() || "?")}</div>`;
 }
 
 function renderBookList() {
@@ -464,20 +511,24 @@ function renderBookList() {
 
   dom.bookList.innerHTML = books.map((book) => `
     <article class="book-card">
-      <div class="badge ${book.published ? 'published' : 'hidden'}">${book.published ? 'Publié' : 'Non publié'}</div>
-      <h3>${escapeHtml(book.title)}</h3>
-      <p>${book.author ? escapeHtml(book.author) : 'Auteur non indiqué'}</p>
-      <p>${book.totalPages ? `${book.totalPages} pages` : 'Nombre de pages inconnu'}</p>
-      <div class="book-actions">
-        <button class="nav-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+      ${coverHtml(book)}
+      <div>
+        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Non publié"}</div>
+        <h3>${escapeHtml(book.title)}</h3>
+        <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
+        <p class="book-meta">${book.totalPages ? `${book.totalPages} pages` : "Nombre de pages inconnu"}</p>
+        <div class="book-actions">
+          <button class="nav-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+        </div>
       </div>
     </article>
   `).join("");
 }
 
 function renderAdminBooks() {
+  if (!state.isAdminCandidate) return;
   if (!state.adminUnlocked) {
-    dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour gérer les livres.</div>`;
+    dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour voir la gestion complète.</div>`;
     return;
   }
 
@@ -488,75 +539,61 @@ function renderAdminBooks() {
 
   dom.adminBooksList.innerHTML = state.books.map((book) => `
     <article class="admin-book-card">
-      <div class="badge ${book.published ? 'published' : 'hidden'}">${book.published ? 'Publié' : 'Masqué'}</div>
-      <h4>${escapeHtml(book.title)}</h4>
-      <p><strong>ID:</strong> ${escapeHtml(book.bookId)}</p>
-      <p><strong>JSON:</strong> ${book.jsonPath ? 'Oui' : 'Non'}</p>
-      <p><strong>Dernière publication:</strong> ${escapeHtml(book.lastPublishedAt || 'N/A')}</p>
-      <div class="admin-book-actions">
-        <button class="secondary-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
-        <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? 'Retirer' : 'Publier'}</button>
+      ${coverHtml(book, "admin-book-cover")}
+      <div>
+        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Masqué"}</div>
+        <h4>${escapeHtml(book.title)}</h4>
+        <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
+        <p>${book.totalPages ? `${book.totalPages} pages` : "Nombre de pages inconnu"}</p>
+        <p>PDF: ${escapeHtml(book.pdfPath || "")}</p>
+        <p>JSON: ${escapeHtml(book.jsonPath || "")}</p>
+        <div class="admin-book-actions">
+          <button class="secondary-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+          <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
+        </div>
       </div>
     </article>
   `).join("");
 }
 
-async function refreshBooks() {
-  await listBooks();
-  renderBookList();
-  renderAdminBooks();
-  if (state.books.length === 1 && state.books[0].published && !state.adminUnlocked) {
-    await openBook(state.books[0]);
-  }
+async function loadTextJson(book) {
+  if (!book.jsonPath) return null;
+  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "no-store" });
+  if (!response.ok) return null;
+  return response.json();
 }
 
-function getBookById(bookId) {
-  return state.books.find((book) => book.bookId === bookId) || null;
+async function loadPdfDocument(book) {
+  if (state.pdfDoc && state.currentBook?.bookId === book.bookId) return state.pdfDoc;
+  const pdfUrl = computePublicAssetUrl(book.pdfPath);
+  const loadingTask = pdfjsLib.getDocument({ url: pdfUrl, disableAutoFetch: false, disableStream: false });
+  state.pdfDoc = await loadingTask.promise;
+  return state.pdfDoc;
 }
 
-function readNotes() {
-  const notes = getNotes();
-  dom.noteInput.value = notes[String(state.currentPage)] || "";
+function rebuildReadingSurfaceClasses() {
+  dom.readingSurface.classList.remove("mode-text", "mode-pdf", "theme-paper", "theme-night", ...FONT_CLASSES);
+  dom.readingSurface.classList.add(state.mode === "text" ? "mode-text" : "mode-pdf");
+  dom.readingSurface.classList.add(state.theme === "night" ? "theme-night" : "theme-paper");
+  dom.readingSurface.classList.add(FONT_CLASSES[state.fontIndex] || FONT_CLASSES[1]);
 }
 
-function saveCurrentNote() {
-  const notes = getNotes();
-  const value = dom.noteInput.value.trim();
-  if (value) notes[String(state.currentPage)] = value;
-  else delete notes[String(state.currentPage)];
-  saveNotesMap(notes);
-  dom.noteStatus.textContent = "Note enregistrée";
-  window.setTimeout(() => { dom.noteStatus.textContent = ""; }, 1800);
-}
-
-function addBookmark() {
-  const bookmarks = getBookmarks();
-  if (!bookmarks.some((bookmark) => bookmark.page === state.currentPage)) {
-    bookmarks.push({ page: state.currentPage, createdAt: new Date().toISOString() });
-    saveBookmarks(bookmarks);
-  }
+function updateUiLabels() {
+  const totalPages = state.totalPages || 0;
+  dom.pageLabel.textContent = `Page ${state.currentPage} / ${totalPages}`;
+  dom.pageInput.value = String(state.currentPage || 1);
+  const progressPercent = totalPages ? Math.round((state.currentPage / totalPages) * 1000) / 10 : 0;
+  dom.progressText.textContent = `${progressPercent} %`;
+  dom.progressBar.style.width = `${Math.max(0, Math.min(100, progressPercent))}%`;
+  dom.modeToggleBtn.textContent = state.mode === "text" ? "Mode PDF" : "Mode texte";
+  dom.themeBtn.textContent = state.theme === "paper" ? "Mode nuit" : "Mode clair";
+  dom.docLabel.textContent = state.currentBook?.title || "Document";
+  dom.prevBtn.disabled = state.currentPage <= 1;
+  dom.nextBtn.disabled = state.currentPage >= totalPages;
+  dom.fontMinusBtn.textContent = state.mode === "text" ? "Police -" : "Zoom -";
+  dom.fontPlusBtn.textContent = state.mode === "text" ? "Police +" : "Zoom +";
   renderBookmarks();
-  showToast(`Signet ajouté à la page ${state.currentPage}`);
-}
-
-function removeBookmark(page) {
-  const bookmarks = getBookmarks().filter((bookmark) => bookmark.page !== page);
-  saveBookmarks(bookmarks);
-  renderBookmarks();
-}
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
-function utf8ToBase64(text) {
-  return btoa(unescape(encodeURIComponent(text)));
+  renderNotes();
 }
 
 function normalizeLineText(parts) {
@@ -568,51 +605,401 @@ function normalizeLineText(parts) {
     .trim();
 }
 
-function extractPageText(items) {
-  if (!items?.length) return "";
-  const sorted = [...items].sort((a, b) => {
-    const ay = a.transform?.[5] || 0;
-    const by = b.transform?.[5] || 0;
-    if (Math.abs(by - ay) > 2) return by - ay;
-    const ax = a.transform?.[4] || 0;
-    const bx = b.transform?.[4] || 0;
-    return ax - bx;
-  });
+function buildStructuredPageFromPlainText(rawText = "") {
+  const source = String(rawText || "")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
-  const lines = [];
-  let currentLine = [];
-  let currentY = null;
-
-  for (const item of sorted) {
-    const text = String(item.str || "").trim();
-    if (!text) continue;
-    const y = item.transform?.[5] || 0;
-    if (currentY === null || Math.abs(y - currentY) <= 3.5) {
-      currentLine.push(text);
-      currentY = currentY === null ? y : currentY;
-    } else {
-      lines.push(normalizeLineText(currentLine));
-      currentLine = [text];
-      currentY = y;
-    }
+  if (!source || source.replace(/\s+/g, "").length < 18) {
+    return { html: "", text: "", charCount: 0, renderMode: "pdf" };
   }
 
-  if (currentLine.length) lines.push(normalizeLineText(currentLine));
-
-  const paragraphs = [];
+  const lines = source.split(/\n/).map((line) => line.trim()).filter(Boolean);
+  const blocks = [];
   let buffer = [];
+
+  const pushBuffer = () => {
+    if (!buffer.length) return;
+    blocks.push({ type: "paragraph", text: buffer.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
+    buffer = [];
+  };
+
   for (const line of lines) {
-    if (!line) continue;
-    const isLikelyParagraphBreak = /^[-•]/.test(line) || /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ\s]{5,}$/.test(line);
-    if (isLikelyParagraphBreak && buffer.length) {
-      paragraphs.push(buffer.join(" ").replace(/-\s+$/g, "-"));
-      buffer = [];
+    const isDialogue = /^[-–—]\s*/.test(line);
+    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ'’\s]{4,}$/.test(line) && line.length <= 60;
+    if (isDialogue) {
+      pushBuffer();
+      blocks.push({ type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") });
+      continue;
+    }
+    if (isCentered) {
+      pushBuffer();
+      blocks.push({ type: "centered", text: line });
+      continue;
+    }
+    if (buffer.length) {
+      const previous = buffer[buffer.length - 1];
+      const previousEndsSentence = /[.!?…:]$/.test(previous);
+      const startsParagraph = /^[«"A-ZÉÈÀÂÊÎÔÛÇ]/.test(line) && previousEndsSentence && line.length > 30;
+      if (startsParagraph) {
+        pushBuffer();
+      }
     }
     buffer.push(line);
   }
-  if (buffer.length) paragraphs.push(buffer.join(" "));
+  pushBuffer();
 
-  return paragraphs.join("\n\n").replace(/\s+([,.;:!?])/g, "$1").trim();
+  if (!blocks.length) {
+    return { html: "", text: source, charCount: source.length, renderMode: "pdf" };
+  }
+
+  const html = blocks.map((block) => {
+    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
+    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
+    return `<p>${escapeHtml(block.text)}</p>`;
+  }).join("");
+
+  return {
+    html,
+    text: blocks.map((block) => block.text).join("\n\n"),
+    charCount: source.replace(/\s+/g, "").length,
+    renderMode: "text",
+  };
+}
+
+function getRenderableTextPage(pageNumber) {
+  const page = state.textDoc?.pages?.[pageNumber - 1];
+  if (!page) return null;
+  if (page.renderMode === "pdf") return { renderMode: "pdf" };
+  if (page.html) return { renderMode: "text", html: page.html, text: page.text || "" };
+  return buildStructuredPageFromPlainText(page.text || "");
+}
+
+async function renderTextPage(pageNumber) {
+  const page = getRenderableTextPage(pageNumber);
+  if (!page || page.renderMode === "pdf" || !page.html) {
+    if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
+    dom.textViewer.hidden = true;
+    dom.pdfViewer.hidden = false;
+    await renderPdfPage(pageNumber, { forceFit: true });
+    if (state.fallbackNoticeShownForPage !== pageNumber) {
+      state.fallbackNoticeShownForPage = pageNumber;
+      showToast("Cette page est affichée en mode PDF pour conserver une mise en page propre.");
+    }
+    return;
+  }
+
+  state.fallbackNoticeShownForPage = 0;
+  dom.textViewer.hidden = false;
+  dom.pdfViewer.hidden = true;
+  dom.textViewer.innerHTML = `
+    <article class="text-page">
+      <h2>Page ${pageNumber}</h2>
+      <div class="text-content">${page.html}</div>
+    </article>
+  `;
+}
+
+function computeFitScale(page) {
+  const shellWidth = Math.max(280, dom.viewerShell.clientWidth - 20);
+  const viewport = page.getViewport({ scale: 1 });
+  return shellWidth / viewport.width;
+}
+
+async function renderPdfPage(pageNumber, { forceFit = false } = {}) {
+  if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
+  const renderToken = ++state.renderToken;
+  const page = await state.pdfDoc.getPage(pageNumber);
+  if (forceFit) state.pdfZoomMultiplier = 1;
+  const scale = computeFitScale(page) * state.pdfZoomMultiplier;
+  const viewport = page.getViewport({ scale });
+  const outputScale = window.devicePixelRatio || 1;
+  const context = dom.pdfCanvas.getContext("2d", { alpha: false });
+
+  dom.pdfCanvas.width = Math.floor(viewport.width * outputScale);
+  dom.pdfCanvas.height = Math.floor(viewport.height * outputScale);
+  dom.pdfCanvas.style.width = `${Math.round(viewport.width)}px`;
+  dom.pdfCanvas.style.height = `${Math.round(viewport.height)}px`;
+
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, dom.pdfCanvas.width, dom.pdfCanvas.height);
+
+  const renderContext = {
+    canvasContext: context,
+    viewport,
+    transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
+  };
+
+  await page.render(renderContext).promise;
+  if (renderToken !== state.renderToken) return;
+  dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
+}
+
+async function renderCurrentPage({ forceFit = false } = {}) {
+  if (!state.currentBook) return;
+  updateUiLabels();
+  rebuildReadingSurfaceClasses();
+
+  if (state.mode === "text") {
+    await renderTextPage(state.currentPage);
+  } else {
+    dom.textViewer.hidden = true;
+    dom.pdfViewer.hidden = false;
+    await renderPdfPage(state.currentPage, { forceFit });
+  }
+
+  dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
+}
+
+async function goToPage(pageNumber, { save = true } = {}) {
+  if (!state.totalPages) return;
+  const nextPage = Math.max(1, Math.min(state.totalPages, Number(pageNumber) || 1));
+  state.currentPage = nextPage;
+  await renderCurrentPage();
+  if (save) scheduleSave();
+}
+
+async function openBook(book) {
+  state.currentBook = book;
+  state.currentPage = 1;
+  state.totalPages = Number(book.totalPages) || 0;
+  state.pdfDoc = null;
+  state.textDoc = null;
+  state.lastSaveSignature = "";
+  state.bookmarks = [];
+  state.notes = [];
+  state.editingNoteId = "";
+  state.pdfZoomMultiplier = 1;
+  state.fallbackNoticeShownForPage = 0;
+
+  setSaveStatus("Chargement...");
+  switchScreen("reader");
+  toggleMenu(false);
+
+  const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
+    fetchProgress(book.bookId),
+    jsonp("listBookmarks", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
+    jsonp("listNotes", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
+    loadTextJson(book).catch(() => null),
+  ]);
+
+  state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
+  state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
+  state.textDoc = textDoc;
+
+  if (textDoc?.totalPages) state.totalPages = Number(textDoc.totalPages) || state.totalPages;
+  if (!state.totalPages || !textDoc) {
+    const pdfDoc = await loadPdfDocument(book);
+    state.totalPages = pdfDoc.numPages;
+  }
+
+  state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : "pdf";
+  const restoredPage = progress?.currentPage ? Number(progress.currentPage) : 1;
+  state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
+  resetNoteEditor();
+  await renderCurrentPage({ forceFit: true });
+  setSaveStatus("Prêt");
+}
+
+function getBookById(bookId) {
+  return state.books.find((book) => book.bookId === bookId) || null;
+}
+
+function roundTo(value, decimals = 2) {
+  const factor = 10 ** decimals;
+  return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function updateFontOrZoom(delta) {
+  if (state.mode === "text") {
+    state.fontIndex = Math.max(0, Math.min(FONT_CLASSES.length - 1, state.fontIndex + delta));
+    void renderCurrentPage();
+    return;
+  }
+
+  const step = CONFIG.pdfZoomStep || 0.15;
+  const minZoom = CONFIG.minPdfZoom || 0.85;
+  const maxZoom = CONFIG.maxPdfZoom || 2.4;
+  state.pdfZoomMultiplier = roundTo(Math.max(minZoom, Math.min(maxZoom, state.pdfZoomMultiplier + (delta * step))), 2);
+  void renderCurrentPage();
+}
+
+function fitCurrentView() {
+  state.pdfZoomMultiplier = 1;
+  void renderCurrentPage({ forceFit: true });
+}
+
+function rebuildAdminBookIdFromTitle() {
+  if (!dom.bookIdInput.dataset.lockedManual) {
+    dom.bookIdInput.value = slugify(dom.bookTitleInput.value);
+  }
+}
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function utf8ToBase64(text) {
+  return btoa(unescape(encodeURIComponent(text)));
+}
+
+function detectCoverExtension(file) {
+  const name = String(file?.name || "").toLowerCase();
+  if (name.endsWith(".png")) return "png";
+  if (name.endsWith(".webp")) return "webp";
+  return "jpg";
+}
+
+function buildLineFromWords(words) {
+  const parts = [];
+  let previousRight = null;
+  for (const word of words) {
+    const text = String(word.text || "").trim();
+    if (!text) continue;
+    const left = Number(word.x) || 0;
+    if (parts.length === 0) {
+      parts.push(text);
+    } else {
+      const gap = previousRight === null ? 0 : left - previousRight;
+      const noLeadingSpace = /^[,.;:!?%)\]»]/.test(text);
+      const noTrailingSpace = /[(\[«]$/.test(parts[parts.length - 1]);
+      if (noLeadingSpace || noTrailingSpace || gap < 1.5) {
+        parts[parts.length - 1] += text;
+      } else {
+        parts.push(text);
+      }
+    }
+    previousRight = (Number(word.x) || 0) + (Number(word.width) || 0);
+  }
+  return normalizeLineText(parts);
+}
+
+function extractStructuredPage(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return { html: "", text: "", charCount: 0, renderMode: "pdf" };
+  }
+
+  const entries = items
+    .map((item) => ({
+      text: String(item.str || ""),
+      x: Number(item.transform?.[4] || 0),
+      y: Number(item.transform?.[5] || 0),
+      width: Number(item.width || 0),
+      height: Number(item.height || 0),
+    }))
+    .filter((item) => item.text && item.text.trim());
+
+  if (!entries.length) return { html: "", text: "", charCount: 0, renderMode: "pdf" };
+
+  const sorted = entries.sort((a, b) => {
+    if (Math.abs(b.y - a.y) > 3) return b.y - a.y;
+    return a.x - b.x;
+  });
+
+  const lines = [];
+  let currentWords = [];
+  let currentY = null;
+  let currentHeight = 0;
+
+  for (const entry of sorted) {
+    if (currentY === null) {
+      currentWords = [entry];
+      currentY = entry.y;
+      currentHeight = entry.height || 10;
+      continue;
+    }
+    const threshold = Math.max(2.8, (currentHeight || 10) * 0.45);
+    if (Math.abs(entry.y - currentY) <= threshold) {
+      currentWords.push(entry);
+      currentHeight = Math.max(currentHeight, entry.height || 10);
+    } else {
+      const ordered = currentWords.sort((a, b) => a.x - b.x);
+      lines.push({
+        text: buildLineFromWords(ordered),
+        y: currentY,
+        height: currentHeight,
+        left: ordered[0]?.x || 0,
+      });
+      currentWords = [entry];
+      currentY = entry.y;
+      currentHeight = entry.height || 10;
+    }
+  }
+
+  if (currentWords.length) {
+    const ordered = currentWords.sort((a, b) => a.x - b.x);
+    lines.push({
+      text: buildLineFromWords(ordered),
+      y: currentY,
+      height: currentHeight,
+      left: ordered[0]?.x || 0,
+    });
+  }
+
+  const filteredLines = lines
+    .map((line) => ({ ...line, text: String(line.text || "").trim() }))
+    .filter((line) => line.text);
+
+  const averageHeight = filteredLines.reduce((sum, line) => sum + (line.height || 0), 0) / Math.max(1, filteredLines.length);
+  const leftValues = filteredLines.map((line) => line.left).sort((a, b) => a - b);
+  const baselineLeft = leftValues[Math.floor(leftValues.length * 0.2)] || 0;
+
+  const blocks = [];
+  let paragraph = [];
+  let previousLine = null;
+
+  const pushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push({ type: "paragraph", text: paragraph.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
+    paragraph = [];
+  };
+
+  for (const line of filteredLines) {
+    const text = line.text;
+    const isDialogue = /^[-–—]\s*/.test(text);
+    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ'’\s]{4,}$/.test(text) && text.length <= 60;
+    const indent = line.left - baselineLeft;
+    const gap = previousLine ? Math.abs(previousLine.y - line.y) : 0;
+    const strongBreak = previousLine && gap > Math.max(averageHeight * 1.45, 14);
+    const indentBreak = indent > Math.max(averageHeight * 1.2, 16);
+
+    if (isDialogue) {
+      pushParagraph();
+      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
+    } else if (isCentered) {
+      pushParagraph();
+      blocks.push({ type: "centered", text });
+    } else {
+      if (strongBreak || indentBreak) pushParagraph();
+      paragraph.push(text);
+    }
+
+    previousLine = line;
+  }
+  pushParagraph();
+
+  const plainText = blocks.map((block) => block.text).join("\n\n").trim();
+  const charCount = plainText.replace(/\s+/g, "").length;
+  if (!blocks.length || charCount < 18) {
+    return { html: "", text: plainText, charCount, renderMode: "pdf" };
+  }
+
+  const html = blocks.map((block) => {
+    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
+    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
+    return `<p>${escapeHtml(block.text)}</p>`;
+  }).join("");
+
+  return { html, text: plainText, charCount, renderMode: "text" };
 }
 
 async function convertPdfFileToJson(file, metadata) {
@@ -626,8 +1013,14 @@ async function convertPdfFileToJson(file, metadata) {
     dom.publishProgress.textContent = `Extraction du texte - page ${pageNumber} / ${pdf.numPages}`;
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
-    const text = extractPageText(textContent.items);
-    pages.push({ page: pageNumber, text, charCount: text.length });
+    const structured = extractStructuredPage(textContent.items);
+    pages.push({
+      page: pageNumber,
+      text: structured.text,
+      html: structured.html,
+      charCount: structured.charCount,
+      renderMode: structured.renderMode,
+    });
   }
 
   return {
@@ -637,16 +1030,8 @@ async function convertPdfFileToJson(file, metadata) {
     sourceFileName: file.name,
     generatedAt: new Date().toISOString(),
     totalPages: pdf.numPages,
-    pages
+    pages,
   };
-}
-
-async function postAdminAction(formData) {
-  await fetch(CONFIG.appsScriptUrl, {
-    method: "POST",
-    mode: "no-cors",
-    body: formData
-  });
 }
 
 async function publishBook(event) {
@@ -656,15 +1041,17 @@ async function publishBook(event) {
     return;
   }
 
-  const file = dom.bookPdfInput.files?.[0];
-  if (!file) {
+  const pdfFile = dom.bookPdfInput.files?.[0];
+  if (!pdfFile) {
     showToast("Choisis un PDF");
     return;
   }
 
   const title = dom.bookTitleInput.value.trim();
-  const bookId = slugify(dom.bookIdInput.value.trim() || title || file.name.replace(/\.pdf$/i, ""));
+  const bookId = slugify(dom.bookIdInput.value.trim() || title || pdfFile.name.replace(/\.pdf$/i, ""));
   const author = dom.bookAuthorInput.value.trim();
+  const coverFile = dom.bookCoverInput.files?.[0] || null;
+
   if (!title || !bookId) {
     showToast("Titre ou identifiant manquant");
     return;
@@ -675,11 +1062,17 @@ async function publishBook(event) {
   dom.publishProgress.textContent = "Lecture du PDF local...";
 
   try {
-    const jsonDoc = await convertPdfFileToJson(file, { title, bookId, author });
-    const arrayBuffer = await file.arrayBuffer();
-    const pdfBase64 = arrayBufferToBase64(arrayBuffer);
-    const jsonString = JSON.stringify(jsonDoc, null, 2);
-    const jsonBase64 = utf8ToBase64(jsonString);
+    const jsonDoc = await convertPdfFileToJson(pdfFile, { title, bookId, author });
+    const pdfBase64 = arrayBufferToBase64(await pdfFile.arrayBuffer());
+    const jsonBase64 = utf8ToBase64(JSON.stringify(jsonDoc, null, 2));
+
+    let coverBase64 = "";
+    let coverExt = "";
+    if (coverFile) {
+      dom.publishProgress.textContent = "Préparation de l’image de couverture...";
+      coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
+      coverExt = detectCoverExtension(coverFile);
+    }
 
     dom.publishProgress.textContent = "Envoi au service de publication...";
     const formData = new FormData();
@@ -690,10 +1083,14 @@ async function publishBook(event) {
     formData.append("title", title);
     formData.append("author", author);
     formData.append("publishNow", dom.publishNowInput.checked ? "true" : "false");
-    formData.append("sourceFileName", file.name);
+    formData.append("sourceFileName", pdfFile.name);
     formData.append("totalPages", String(jsonDoc.totalPages));
     formData.append("pdfBase64", pdfBase64);
     formData.append("jsonBase64", jsonBase64);
+    if (coverBase64) {
+      formData.append("coverBase64", coverBase64);
+      formData.append("coverExt", coverExt);
+    }
     formData.append("repoOwner", CONFIG.githubRepoOwner || "");
     formData.append("repoName", CONFIG.githubRepoName || "");
     formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
@@ -702,7 +1099,7 @@ async function publishBook(event) {
     await postAdminAction(formData);
 
     setPublishStatus("Publication envoyée...");
-    showToast("Publication envoyée. Vérification en cours...");
+    dom.publishProgress.textContent = "Vérification de la publication dans GitHub...";
 
     let published = false;
     for (let attempt = 1; attempt <= (CONFIG.maxPublishPollAttempts || 8); attempt += 1) {
@@ -717,8 +1114,9 @@ async function publishBook(event) {
 
     if (published) {
       setPublishStatus("Livre publié", true);
-      dom.publishProgress.textContent = "Le PDF et le JSON sont maintenant dans le dépôt GitHub.";
+      dom.publishProgress.textContent = "Le PDF, le JSON et la couverture sont publiés dans le dépôt GitHub.";
       dom.publishForm.reset();
+      dom.bookIdInput.dataset.lockedManual = "";
     } else {
       setPublishStatus("Publication envoyée. Vérifie GitHub ou le journal Apps Script.");
       dom.publishProgress.textContent = "La publication peut prendre un peu de temps. Recharge la liste des livres.";
@@ -741,7 +1139,7 @@ async function toggleBookPublished(bookId) {
       email: state.email,
       adminCode: state.adminCode,
       bookId,
-      published: book && book.published ? "false" : "true"
+      published: book && book.published ? "false" : "true",
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer le statut.");
     await refreshBooks();
@@ -781,10 +1179,18 @@ function logoutToGate() {
   state.currentBook = null;
   state.pdfDoc = null;
   state.textDoc = null;
+  state.totalPages = 0;
+  state.currentPage = 1;
+  state.bookmarks = [];
+  state.notes = [];
+  state.editingNoteId = "";
   state.lastSaveSignature = "";
+  state.pdfZoomMultiplier = 1;
   dom.adminCodeInput.value = "";
   dom.publishForm.hidden = true;
   dom.emailInput.value = "";
+  setGateMessage("");
+  setGateBusy(false);
   switchScreen("gate");
 }
 
@@ -792,13 +1198,16 @@ async function handleLogin(event) {
   event.preventDefault();
   const email = normalizeEmail(dom.emailInput.value);
   const suffixes = CONFIG.allowedDomainSuffixes || [];
-  if (!email || (suffixes.length && !suffixes.some((suffix) => email.endsWith(`@${suffix}`)))) {
+  const domainOk = suffixes.length === 0 || suffixes.some((suffix) => email.endsWith(`@${suffix}`));
+
+  if (!isValidEmail(email) || !domainOk) {
     setGateMessage("Courriel scolaire invalide.", "error");
     return;
   }
 
-  dom.loginBtn.disabled = true;
-  setGateMessage("Validation...", "");
+  setGateMessage("");
+  setGateBusy(true, "Validation de votre identité, veuillez patienter quelques instants. Le chargement est en cours.");
+
   try {
     const response = await auth(email);
     if (!response?.ok) throw new Error(response?.message || "Accès refusé.");
@@ -811,13 +1220,21 @@ async function handleLogin(event) {
     console.error(error);
     setGateMessage(error.message || "Accès refusé.", "error");
   } finally {
-    dom.loginBtn.disabled = false;
+    setGateBusy(false);
   }
 }
 
 function attachEvents() {
   dom.loginForm.addEventListener("submit", handleLogin);
-  dom.refreshBooksBtn.addEventListener("click", refreshBooks);
+  dom.refreshBooksBtn.addEventListener("click", async () => {
+    try {
+      await refreshBooks();
+      showToast("Bibliothèque actualisée");
+    } catch (error) {
+      console.error(error);
+      showToast("Impossible d’actualiser");
+    }
+  });
   dom.logoutBtn.addEventListener("click", logoutToGate);
   dom.backToLibraryBtn.addEventListener("click", async () => {
     await saveProgress({ immediate: true });
@@ -829,7 +1246,13 @@ function attachEvents() {
   dom.prevBtn.addEventListener("click", () => goToPage(state.currentPage - 1));
   dom.nextBtn.addEventListener("click", () => goToPage(state.currentPage + 1));
   dom.goBtn.addEventListener("click", () => goToPage(Number(dom.pageInput.value)));
-  dom.fitBtn.addEventListener("click", () => renderCurrentPage());
+  dom.pageInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      goToPage(Number(dom.pageInput.value));
+    }
+  });
+  dom.fitBtn.addEventListener("click", fitCurrentView);
   dom.modeToggleBtn.addEventListener("click", async () => {
     if (state.mode === "text") {
       if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
@@ -838,31 +1261,24 @@ function attachEvents() {
       if (state.textDoc) state.mode = "text";
       else showToast("Aucune version texte disponible");
     }
-    await renderCurrentPage();
+    await renderCurrentPage({ forceFit: state.mode === "pdf" });
   });
-  dom.fontMinusBtn.addEventListener("click", async () => {
-    state.fontIndex = Math.max(0, state.fontIndex - 1);
-    await renderCurrentPage();
-  });
-  dom.fontPlusBtn.addEventListener("click", async () => {
-    state.fontIndex = Math.min(FONT_CLASSES.length - 1, state.fontIndex + 1);
-    await renderCurrentPage();
-  });
+  dom.fontMinusBtn.addEventListener("click", () => updateFontOrZoom(-1));
+  dom.fontPlusBtn.addEventListener("click", () => updateFontOrZoom(1));
   dom.themeBtn.addEventListener("click", async () => {
     state.theme = state.theme === "paper" ? "night" : "paper";
     await renderCurrentPage();
   });
   dom.bookmarkBtn.addEventListener("click", addBookmark);
   dom.saveBtn.addEventListener("click", () => saveProgress({ immediate: true }));
-  dom.switchUserBtn.addEventListener("click", logoutToGate);
   dom.saveNoteBtn.addEventListener("click", saveCurrentNote);
+  dom.newNoteBtn.addEventListener("click", resetNoteEditor);
   dom.unlockAdminBtn.addEventListener("click", unlockAdmin);
   dom.publishForm.addEventListener("submit", publishBook);
   dom.reloadAdminBooksBtn.addEventListener("click", refreshBooks);
-  dom.bookTitleInput.addEventListener("input", () => {
-    if (!dom.bookIdInput.value.trim()) {
-      dom.bookIdInput.value = slugify(dom.bookTitleInput.value);
-    }
+  dom.bookTitleInput.addEventListener("input", rebuildAdminBookIdFromTitle);
+  dom.bookIdInput.addEventListener("input", () => {
+    dom.bookIdInput.dataset.lockedManual = dom.bookIdInput.value.trim() ? "1" : "";
   });
 
   dom.bookList.addEventListener("click", async (event) => {
@@ -893,16 +1309,28 @@ function attachEvents() {
       return;
     }
     if (removeButton) {
-      removeBookmark(Number(removeButton.dataset.removeBookmark));
+      await removeBookmark(Number(removeButton.dataset.removeBookmark));
+    }
+  });
+
+  dom.notesList.addEventListener("click", async (event) => {
+    const editButton = event.target.closest("[data-edit-note]");
+    const deleteButton = event.target.closest("[data-delete-note]");
+    if (editButton) {
+      startEditingNote(editButton.dataset.editNote);
+      return;
+    }
+    if (deleteButton) {
+      await deleteNote(deleteButton.dataset.deleteNote);
     }
   });
 
   window.addEventListener("resize", () => {
     if (!state.currentBook || state.mode !== "pdf") return;
     window.clearTimeout(window.__readerResizeTimer);
-    window.__readerResizeTimer = window.setTimeout(() => renderCurrentPage(), 120);
+    window.__readerResizeTimer = window.setTimeout(() => renderCurrentPage({ forceFit: true }), 120);
   });
-  window.addEventListener("orientationchange", () => window.setTimeout(() => renderCurrentPage(), 180));
+  window.addEventListener("orientationchange", () => window.setTimeout(() => renderCurrentPage({ forceFit: true }), 180));
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) saveProgress({ immediate: true });
   });
@@ -912,10 +1340,12 @@ function attachEvents() {
 }
 
 function init() {
+  blockEasyActions();
   attachEvents();
   switchScreen("gate");
   toggleMenu(false);
   rebuildReadingSurfaceClasses();
+  setSaveStatus("En attente");
 }
 
 init();

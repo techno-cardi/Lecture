@@ -9,8 +9,11 @@ window.READER_CONFIG = {
   githubRepoBranch: "main",
   githubAssetsBasePath: "assets/books",
   pdfJsVersion: "5.6.205",
-  autoSaveDelayMs: 450,
+  autoSaveDelayMs: 500,
   publishPollDelayMs: 4000,
   maxPublishPollAttempts: 8,
-  defaultReaderMode: "text"
+  defaultReaderMode: "text",
+  minPdfZoom: 0.85,
+  maxPdfZoom: 2.4,
+  pdfZoomStep: 0.15,
 };

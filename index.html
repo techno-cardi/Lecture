@@ -30,6 +30,11 @@
         <button id="loginBtn" type="submit">Accéder</button>
       </form>
 
+      <div id="gateBusy" class="gate-busy" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="gateBusyText">Validation de votre identité, veuillez patienter quelques instants. Le chargement est en cours.</span>
+      </div>
+
       <p id="gateMessage" class="gate-message" aria-live="polite"></p>
 
       <div class="small-note">
@@ -57,7 +62,7 @@
           <div>
             <p class="eyebrow">Administration</p>
             <h3>Préparer et publier un livre</h3>
-            <p class="admin-help">L’extraction du texte se fait ici, en amont, avec ton fichier local. Les élèves ne convertissent rien.</p>
+            <p class="admin-help">La conversion PDF vers JSON se fait ici, une seule fois, avant la lecture des élèves.</p>
           </div>
         </div>
 
@@ -89,10 +94,18 @@
             </div>
           </div>
 
-          <label class="check-row">
-            <input id="publishNowInput" type="checkbox" checked>
-            <span>Publier immédiatement pour les élèves</span>
-          </label>
+          <div class="publish-grid">
+            <div>
+              <label for="bookCoverInput">Image de couverture</label>
+              <input id="bookCoverInput" type="file" accept="image/png,image/jpeg,image/webp,image/jpg">
+            </div>
+            <div>
+              <label for="publishNowInput" class="checkbox-label">
+                <input id="publishNowInput" type="checkbox" checked>
+                <span>Publier immédiatement pour les élèves</span>
+              </label>
+            </div>
+          </div>
 
           <div class="publish-actions">
             <button id="publishBtn" class="nav-btn" type="submit">Convertir et publier</button>
@@ -155,7 +168,6 @@
           <button id="bookmarkBtn" class="secondary-btn" type="button">Ajouter un signet</button>
           <button id="saveBtn" class="secondary-btn" type="button">Sauvegarder ma progression</button>
           <button id="themeBtn" class="secondary-btn" type="button">Mode nuit</button>
-          <button id="switchUserBtn" class="ghost-btn" type="button">Changer de courriel</button>
         </div>
 
         <div class="bookmarks-block">
@@ -166,12 +178,14 @@
         </div>
 
         <div class="notes-block">
-          <label for="pageNoteInput" class="notes-label">Note pour cette page</label>
-          <textarea id="pageNoteInput" rows="3" placeholder="Écris une note personnelle ici."></textarea>
+          <label for="pageNoteInput" class="notes-label">Nouvelle note pour cette page</label>
+          <textarea id="pageNoteInput" rows="4" maxlength="1200" placeholder="Écris une note personnelle ici."></textarea>
           <div class="notes-actions">
             <button id="saveNoteBtn" class="secondary-btn" type="button">Enregistrer la note</button>
+            <button id="newNoteBtn" class="ghost-btn" type="button">Nouvelle note</button>
             <span id="noteStatus" class="save-status"></span>
           </div>
+          <div id="notesList" class="notes-list"></div>
         </div>
 
         <div class="status-row">
