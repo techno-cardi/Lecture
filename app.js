@@ -626,7 +626,7 @@ function normalizeLineText(parts) {
 }
 
 function extractPageText(items) {
-  if (!items?.length) return "";
+  if (!items?.length) return [];
   const sorted = [...items].sort((a, b) => {
     const ay = a.transform?.[5] || 0;
     const by = b.transform?.[5] || 0;
