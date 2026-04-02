@@ -11,6 +11,7 @@ const DEFAULT_PREFS = {
   showTopProgress: false,
   progressDisplayMode: "percent"
 };
+const ADMIN_UPLOAD_CHUNK_SIZE = Number(CONFIG.adminUploadChunkSize) > 0 ? Number(CONFIG.adminUploadChunkSize) : 90000;
 
 const STORAGE_KEYS = {
   rememberedEmail: `${CONFIG.appName || "reader"}:remembered-email`,
@@ -191,6 +192,62 @@ function setSaveStatus(message, positive = false) {
 function setPublishStatus(message, positive = false) {
   dom.publishStatus.textContent = message;
   dom.publishStatus.style.color = positive ? "var(--success)" : "";
+}
+
+function ensurePublishProgressUi() {
+  if (dom.publishProgressBarWrap) return;
+
+  if (!document.getElementById("publishProgressUiStyle")) {
+    const style = document.createElement("style");
+    style.id = "publishProgressUiStyle";
+    style.textContent = `
+      .publish-progress-wrap { margin: 0.45rem 0 0.6rem; }
+      .publish-progress-track { width: 100%; height: 12px; border-radius: 999px; background: rgba(15, 23, 42, 0.08); overflow: hidden; }
+      .publish-progress-fill { height: 100%; width: 0%; border-radius: inherit; background: linear-gradient(90deg, #2952d1 0%, #5b7cff 100%); transition: width 0.18s ease; }
+      .publish-progress-meta { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 0.35rem; font-size: 0.95rem; color: #40516f; }
+      .publish-progress-stage { font-weight: 600; }
+      .publish-progress-percent { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "publish-progress-wrap";
+  wrap.hidden = true;
+  wrap.innerHTML = `
+    <div class="publish-progress-track" aria-hidden="true">
+      <div class="publish-progress-fill"></div>
+    </div>
+    <div class="publish-progress-meta">
+      <span class="publish-progress-stage"></span>
+      <span class="publish-progress-percent">0 %</span>
+    </div>
+  `;
+
+  dom.publishProgress.insertAdjacentElement("beforebegin", wrap);
+  dom.publishProgressBarWrap = wrap;
+  dom.publishProgressFill = wrap.querySelector(".publish-progress-fill");
+  dom.publishProgressStage = wrap.querySelector(".publish-progress-stage");
+  dom.publishProgressPercent = wrap.querySelector(".publish-progress-percent");
+}
+
+function setPublishProgressUi({ visible = true, percent = 0, stage = "", detail = undefined } = {}) {
+  ensurePublishProgressUi();
+  const boundedPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+  dom.publishProgressBarWrap.hidden = !visible;
+  dom.publishProgressFill.style.width = `${boundedPercent}%`;
+  dom.publishProgressPercent.textContent = `${boundedPercent.toFixed(boundedPercent >= 10 ? 0 : 1)} %`;
+  dom.publishProgressStage.textContent = stage || "";
+  if (detail !== undefined) dom.publishProgress.textContent = detail || "";
+}
+
+function hidePublishProgressUi(detail = "") {
+  ensurePublishProgressUi();
+  dom.publishProgressBarWrap.hidden = true;
+  dom.publishProgressFill.style.width = "0%";
+  dom.publishProgressPercent.textContent = "0 %";
+  dom.publishProgressStage.textContent = "";
+  dom.publishProgress.textContent = detail;
 }
 
 function switchScreen(screen) {
@@ -1101,8 +1158,16 @@ async function convertPdfFileToJson(file, metadata) {
   const pdf = await loadingTask.promise;
   const pages = [];
 
+  setPublishProgressUi({ visible: true, percent: 0, stage: "Analyse du PDF", detail: "Préparation de la conversion du livre..." });
+
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    dom.publishProgress.textContent = `Extraction du texte - page ${pageNumber} / ${pdf.numPages}`;
+    const extractPercent = pdf.numPages ? (pageNumber / pdf.numPages) * 8 : 0;
+    setPublishProgressUi({
+      visible: true,
+      percent: extractPercent,
+      stage: "Analyse du PDF",
+      detail: `Extraction du texte - page ${pageNumber} / ${pdf.numPages}`
+    });
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
     const blocks = ensureBlocksArray(extractPageText(textContent.items));
@@ -1180,8 +1245,7 @@ async function postAdminAction(formData, options = {}) {
   });
 }
 
-async function publishAdminStage(action, payload, stageLabel, options = {}) {
-  dom.publishProgress.textContent = stageLabel;
+function buildAdminFormData(action, payload = {}) {
   const formData = new FormData();
   formData.append("action", action);
   formData.append("email", state.email);
@@ -1191,9 +1255,105 @@ async function publishAdminStage(action, payload, stageLabel, options = {}) {
   formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
   formData.append("assetsBasePath", CONFIG.githubAssetsBasePath || "assets/books");
   Object.entries(payload || {}).forEach(([key, value]) => {
-    formData.append(key, value == null ? "" : String(value));
+    if (value !== undefined && value !== null) formData.append(key, String(value));
   });
-  return postAdminAction(formData, options);
+  return formData;
+}
+
+async function adminPost(action, payload = {}, options = {}) {
+  return postAdminAction(buildAdminFormData(action, payload), options);
+}
+
+function splitIntoUploadChunks(value, chunkSize = ADMIN_UPLOAD_CHUNK_SIZE) {
+  const text = String(value || "");
+  if (!text) return [];
+  const parts = [];
+  for (let index = 0; index < text.length; index += chunkSize) {
+    parts.push(text.slice(index, index + chunkSize));
+  }
+  return parts;
+}
+
+function buildUploadId(bookId) {
+  return `${bookId}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function computeUploadPercent(confirmedBytes, totalBytes) {
+  if (!totalBytes) return 0;
+  return (confirmedBytes / totalBytes) * 100;
+}
+
+async function uploadFileInChunks({ uploadId, fileType, content, label, totalBytes, confirmedBytes }) {
+  const chunks = splitIntoUploadChunks(content);
+  if (!chunks.length) return confirmedBytes;
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    setPublishProgressUi({
+      visible: true,
+      percent: computeUploadPercent(confirmedBytes, totalBytes),
+      stage: `Téléversement du ${label}`,
+      detail: `${label} - envoi du bloc ${index + 1} / ${chunks.length}...`
+    });
+
+    const response = await adminPost("uploadBookChunk", {
+      uploadId,
+      fileType,
+      chunkIndex: index,
+      totalChunks: chunks.length,
+      dataChunk: chunk
+    }, {
+      timeoutMs: 90000,
+      timeoutMessage: `Délai dépassé pendant l’envoi du bloc ${index + 1} / ${chunks.length} du ${label}.`
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.details || response?.message || `Échec de l’envoi du bloc ${index + 1} du ${label}.`);
+    }
+
+    confirmedBytes += chunk.length;
+    setPublishProgressUi({
+      visible: true,
+      percent: computeUploadPercent(confirmedBytes, totalBytes),
+      stage: `Téléversement du ${label}`,
+      detail: `${label} - ${index + 1} / ${chunks.length} blocs confirmés`
+    });
+  }
+
+  return confirmedBytes;
+}
+
+async function commitUploadedFile({ uploadId, fileType, label, percent }) {
+  setPublishStatus(`Publication de ${label}...`);
+  setPublishProgressUi({
+    visible: true,
+    percent,
+    stage: `Publication de ${label}`,
+    detail: `Assemblage et envoi de ${label} vers GitHub...`
+  });
+
+  const response = await adminPost("commitUploadedBookFile", {
+    uploadId,
+    fileType
+  }, {
+    timeoutMs: 180000,
+    timeoutMessage: `Délai dépassé pendant la publication de ${label} vers GitHub.`
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.details || response?.message || `Échec de la publication de ${label}.`);
+  }
+
+  return response;
+}
+
+async function abortChunkedPublish(uploadId) {
+  if (!uploadId) return;
+  try {
+    await adminPost("abortChunkedPublish", { uploadId }, { timeoutMs: 45000, timeoutMessage: "" });
+  } catch (error) {
+    console.warn("Nettoyage de publication impossible", error);
+  }
 }
 
 async function publishBook(event) {
@@ -1219,7 +1379,9 @@ async function publishBook(event) {
 
   dom.publishBtn.disabled = true;
   setPublishStatus("Préparation...");
-  dom.publishProgress.textContent = "Lecture du PDF local...";
+  setPublishProgressUi({ visible: true, percent: 0, stage: "Préparation", detail: "Lecture du PDF local..." });
+
+  let uploadId = "";
 
   try {
     const jsonDoc = await convertPdfFileToJson(file, { title, bookId, author });
@@ -1231,77 +1393,57 @@ async function publishBook(event) {
     let coverExtension = "";
     const coverFile = dom.bookCoverInput.files?.[0];
     if (coverFile) {
-      dom.publishProgress.textContent = "Préparation de l’image de couverture...";
+      setPublishProgressUi({ visible: true, percent: 8, stage: "Préparation", detail: "Préparation de l’image de couverture..." });
       coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
       coverExtension = (coverFile.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
     }
 
-    setPublishStatus("Téléversement du JSON...");
-    const jsonUpload = await publishAdminStage(
-      "uploadBookJson",
-      {
-        bookId,
-        title,
-        author,
-        sourceFileName: file.name,
-        totalPages: String(jsonDoc.totalPages),
-        jsonBase64
-      },
-      "Téléversement de la version texte du livre...",
-      { timeoutMessage: "Délai dépassé pendant le téléversement du JSON." }
-    );
-    if (!jsonUpload?.ok) throw new Error(jsonUpload?.details || jsonUpload?.message || "Échec du téléversement du JSON.");
+    uploadId = buildUploadId(bookId);
+    const totalUploadBytes = jsonBase64.length + pdfBase64.length + coverBase64.length;
+    let confirmedBytes = 0;
 
-    setPublishStatus("Téléversement du PDF...");
-    const pdfUpload = await publishAdminStage(
-      "uploadBookPdf",
-      {
-        bookId,
-        title,
-        author,
-        sourceFileName: file.name,
-        totalPages: String(jsonDoc.totalPages),
-        pdfBase64
-      },
-      "Téléversement du PDF vers GitHub...",
-      { timeoutMessage: "Délai dépassé pendant le téléversement du PDF." }
-    );
-    if (!pdfUpload?.ok) throw new Error(pdfUpload?.details || pdfUpload?.message || "Échec du téléversement du PDF.");
+    const initResponse = await adminPost("initChunkedPublish", {
+      uploadId,
+      bookId,
+      title,
+      author,
+      publishNow: dom.publishNowInput.checked ? "true" : "false",
+      allowPdfMode: dom.allowPdfModeInput.checked ? "true" : "false",
+      sourceFileName: file.name,
+      totalPages: String(jsonDoc.totalPages),
+      coverExtension
+    }, {
+      timeoutMs: 60000,
+      timeoutMessage: "Délai dépassé pendant l’initialisation de la publication."
+    });
+
+    if (!initResponse?.ok) throw new Error(initResponse?.details || initResponse?.message || "Impossible d’initialiser la publication.");
+
+    confirmedBytes = await uploadFileInChunks({ uploadId, fileType: "json", content: jsonBase64, label: "la version texte", totalBytes: totalUploadBytes, confirmedBytes });
+    const jsonUpload = await commitUploadedFile({ uploadId, fileType: "json", label: "la version texte", percent: computeUploadPercent(confirmedBytes, totalUploadBytes) });
+
+    confirmedBytes = await uploadFileInChunks({ uploadId, fileType: "pdf", content: pdfBase64, label: "le PDF", totalBytes: totalUploadBytes, confirmedBytes });
+    const pdfUpload = await commitUploadedFile({ uploadId, fileType: "pdf", label: "le PDF", percent: computeUploadPercent(confirmedBytes, totalUploadBytes) });
 
     let coverUpload = null;
     if (coverBase64) {
-      setPublishStatus("Téléversement de la couverture...");
-      coverUpload = await publishAdminStage(
-        "uploadBookCover",
-        {
-          bookId,
-          coverBase64,
-          coverExtension
-        },
-        "Téléversement de la couverture...",
-        { timeoutMessage: "Délai dépassé pendant le téléversement de la couverture." }
-      );
-      if (!coverUpload?.ok) throw new Error(coverUpload?.details || coverUpload?.message || "Échec du téléversement de la couverture.");
+      confirmedBytes = await uploadFileInChunks({ uploadId, fileType: "cover", content: coverBase64, label: "la couverture", totalBytes: totalUploadBytes, confirmedBytes });
+      coverUpload = await commitUploadedFile({ uploadId, fileType: "cover", label: "la couverture", percent: computeUploadPercent(confirmedBytes, totalUploadBytes) });
     }
 
     setPublishStatus("Enregistrement du livre...");
-    const finalizeResponse = await publishAdminStage(
-      "finalizeBookPublication",
-      {
-        bookId,
-        title,
-        author,
-        publishNow: dom.publishNowInput.checked ? "true" : "false",
-        allowPdfMode: dom.allowPdfModeInput.checked ? "true" : "false",
-        sourceFileName: file.name,
-        totalPages: String(jsonDoc.totalPages),
-        pdfPath: jsonUpload?.pdfPath || pdfUpload?.pdfPath || "",
-        jsonPath: jsonUpload?.jsonPath || "",
-        coverPath: coverUpload?.coverPath || ""
-      },
-      "Enregistrement du livre dans la bibliothèque...",
-      { timeoutMessage: "Délai dépassé pendant l’enregistrement du livre." }
-    );
+    setPublishProgressUi({
+      visible: true,
+      percent: 100,
+      stage: "Finalisation",
+      detail: "Enregistrement du livre dans la bibliothèque..."
+    });
+
+    const finalizeResponse = await adminPost("finalizeChunkedPublish", { uploadId }, {
+      timeoutMs: 120000,
+      timeoutMessage: "Délai dépassé pendant l’enregistrement du livre."
+    });
+
     if (!finalizeResponse?.ok) throw new Error(finalizeResponse?.details || finalizeResponse?.message || "Impossible d’enregistrer le livre.");
 
     if (finalizeResponse.book) mergeBookInState(finalizeResponse.book);
@@ -1309,13 +1451,15 @@ async function publishBook(event) {
     renderAdminBooks();
     dom.publishForm.reset();
     setPublishStatus("Livre publié", true);
-    dom.publishProgress.textContent = "Le livre a été publié et la bibliothèque a été mise à jour.";
+    const sentLabels = [jsonUpload?.path ? "JSON" : "", pdfUpload?.path ? "PDF" : "", coverUpload?.path ? "couverture" : ""].filter(Boolean).join(", ");
+    setPublishProgressUi({ visible: true, percent: 100, stage: "Terminé", detail: `Livre publié. Fichiers envoyés : ${sentLabels || "bibliothèque mise à jour"}.` });
     showToast("Livre publié");
     refreshBooks({ useCache: true, silentError: true }).catch(() => {});
   } catch (error) {
     console.error(error);
     setPublishStatus("Échec de publication");
-    dom.publishProgress.textContent = error.message || "Impossible de convertir ou publier le fichier.";
+    setPublishProgressUi({ visible: true, percent: 0, stage: "Échec", detail: error.message || "Impossible de convertir ou publier le fichier." });
+    if (uploadId) abortChunkedPublish(uploadId).catch(() => {});
     showToast("Échec de publication");
   } finally {
     dom.publishBtn.disabled = false;
@@ -1854,6 +1998,8 @@ function init() {
   attachEvents();
   setupInstallPrompt();
   setupZoomBlocking();
+  ensurePublishProgressUi();
+  hidePublishProgressUi();
   switchScreen("gate");
   toggleMenu(false);
   rebuildReadingSurfaceClasses();
