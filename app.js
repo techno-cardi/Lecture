@@ -19,6 +19,8 @@ const STORAGE_KEYS = {
   persistentSession: `${CONFIG.appName || "reader"}:persistent-session`
 };
 
+const ADMIN_EMAIL = normalizeEmail(CONFIG.adminEmail || "tremblay.kevin@cscapitale.qc.ca");
+
 const dom = {
   gate: document.getElementById("gate"),
   library: document.getElementById("library"),
@@ -35,6 +37,7 @@ const dom = {
   refreshBooksBtn: document.getElementById("refreshBooksBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
   adminPanel: document.getElementById("adminPanel"),
+  adminLockRow: document.querySelector("#adminPanel .admin-lock-row"),
   adminCodeInput: document.getElementById("adminCodeInput"),
   unlockAdminBtn: document.getElementById("unlockAdminBtn"),
   publishForm: document.getElementById("publishForm"),
@@ -203,6 +206,47 @@ function toggleMenu(open) {
   dom.menuToggle.setAttribute("aria-expanded", String(shouldOpen));
 }
 
+function updateAdminLockUi(message = "") {
+  if (dom.adminLockRow) dom.adminLockRow.hidden = !!state.adminUnlocked;
+  dom.publishForm.hidden = !state.adminUnlocked;
+  dom.adminCodeInput.readOnly = !!state.adminUnlocked;
+  if (state.adminUnlocked) dom.adminCodeInput.blur();
+  if (message) setPublishStatus(message, state.adminUnlocked);
+}
+
+function renderAdminLoading(message = "Chargement de la liste des livres...") {
+  dom.adminBooksList.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
+}
+
+function inferAdminCandidateFromEmail(email) {
+  return normalizeEmail(email) === ADMIN_EMAIL;
+}
+
+function ensureBlocksArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .filter(Boolean)
+      .map((block) => {
+        if (typeof block === "string") return { type: "paragraph", text: String(block).trim() };
+        if (block && typeof block === "object") {
+          return {
+            type: String(block.type || "paragraph"),
+            text: String(block.text || "").trim()
+          };
+        }
+        return null;
+      })
+      .filter((block) => block && block.text);
+  }
+  if (!value) return [];
+  if (typeof value === "string") return extractPageTextFromRawString(value);
+  if (value && typeof value === "object") {
+    if (Array.isArray(value.blocks)) return ensureBlocksArray(value.blocks);
+    if (typeof value.text === "string") return extractPageTextFromRawString(value.text);
+  }
+  return [];
+}
+
 function openModal(modal) {
   dom.modalBackdrop.hidden = false;
   modal.hidden = false;
@@ -274,23 +318,23 @@ async function auth(email) {
   return jsonp("auth", { email });
 }
 
-async function listBooks() {
-  const response = await jsonp("listBooks", {
+async function listBooks(adminMode = state.adminUnlocked) {
+  return jsonp("listBooks", {
     email: state.email,
-    adminCode: state.adminUnlocked ? state.adminCode : ""
+    adminCode: adminMode ? state.adminCode : ""
+  }).then((response) => {
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger la bibliothèque.");
+    if (adminMode && response.adminAuthorized !== true) {
+      state.adminUnlocked = false;
+      state.adminCode = "";
+      dom.adminCodeInput.value = "";
+      updateAdminLockUi("Le mode administrateur a été reverrouillé.");
+      persistSession();
+    }
+    state.books = Array.isArray(response?.books) ? response.books : [];
+    cacheBooks(state.books, adminMode);
+    return state.books;
   });
-  if (!response?.ok) throw new Error(response?.message || "Impossible de charger la bibliothèque.");
-  if (state.adminUnlocked && response.adminAuthorized !== true) {
-    state.adminUnlocked = false;
-    state.adminCode = "";
-    dom.publishForm.hidden = true;
-    dom.adminCodeInput.value = "";
-    dom.adminCodeInput.readOnly = false;
-    persistSession();
-  }
-  state.books = response.books || [];
-  cacheBooks(state.books, state.adminUnlocked);
-  return state.books;
 }
 
 async function fetchProgress(bookId) {
@@ -480,7 +524,7 @@ function renderBookList() {
 
 function renderAdminBooks() {
   if (!state.adminUnlocked) {
-    dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour gérer les livres.</div>`;
+    dom.adminBooksList.innerHTML = `<div class="empty-state">Entre le code administrateur pour gérer les livres.</div>`;
     return;
   }
   if (!state.books.length) {
@@ -709,7 +753,7 @@ function extractPageText(items) {
   }
   if (buffer.length) blocks.push({ type: "paragraph", text: buffer.join(" ") });
 
-  return blocks
+  return ensureBlocksArray(blocks)
     .map((block) => ({
       type: block.type,
       text: String(block.text || "")
@@ -725,7 +769,7 @@ function extractPageText(items) {
 }
 
 function blocksToHtml(blocks) {
-  return blocks.map((block) => {
+  return ensureBlocksArray(blocks).map((block) => {
     const cls = block.type === "dialogue" ? "dialogue" : block.type === "centered" ? "centered" : "";
     return `<p${cls ? ` class="${cls}"` : ""}>${escapeHtml(block.text)}</p>`;
   }).join("");
@@ -734,7 +778,7 @@ function blocksToHtml(blocks) {
 function normalizeJsonPage(page) {
   if (!page) return { html: "", hasUsableText: false };
   if (page.html) return { html: String(page.html), hasUsableText: !!String(page.html).trim() };
-  const blocks = Array.isArray(page.blocks) ? page.blocks : extractPageTextFromRawString(page.text || "");
+  const blocks = ensureBlocksArray(Array.isArray(page?.blocks) ? page.blocks : page?.text || "");
   const html = blocksToHtml(blocks);
   return { html, hasUsableText: blocks.length > 0 };
 }
@@ -1061,14 +1105,15 @@ async function convertPdfFileToJson(file, metadata) {
     dom.publishProgress.textContent = `Extraction du texte - page ${pageNumber} / ${pdf.numPages}`;
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
-    const blocks = extractPageText(textContent.items);
+    const blocks = ensureBlocksArray(extractPageText(textContent.items));
+    const joinedText = blocks.map((block) => block.text).join("\n\n");
     pages.push({
       page: pageNumber,
       blocks,
-      text: blocks.map((block) => block.text).join("\n\n"),
+      text: joinedText,
       html: blocksToHtml(blocks),
       hasUsableText: blocks.length > 0,
-      charCount: blocks.map((block) => block.text).join("").length
+      charCount: joinedText.replace(/\s+/g, "").length
     });
   }
 
@@ -1293,6 +1338,7 @@ async function deleteBook(bookId) {
 }
 
 async function unlockAdmin() {
+  if (state.adminUnlocked) return;
   const code = dom.adminCodeInput.value.trim();
   if (!code) {
     showToast("Entre le code administrateur");
@@ -1303,30 +1349,32 @@ async function unlockAdmin() {
   dom.unlockAdminBtn.disabled = true;
   dom.adminCodeInput.disabled = true;
   dom.unlockAdminBtn.textContent = "Vérification...";
+  setPublishStatus("Connexion en cours. Bienvenue Kevin Tremblay, administrateur.");
 
   try {
-    const response = await jsonp("listBooks", { email: state.email, adminCode: code });
-    if (!response?.ok || response.adminAuthorized !== true) throw new Error(response?.message || "Code invalide.");
+    const response = await jsonp("verifyAdmin", { email: state.email, adminCode: code });
+    if (!response?.ok || response.adminAuthorized !== true) {
+      throw new Error(response?.message || "Code invalide.");
+    }
     state.adminUnlocked = true;
     state.adminCode = code;
-    state.books = response.books || [];
     dom.adminCodeInput.value = code;
-    dom.adminCodeInput.readOnly = true;
-    dom.publishForm.hidden = false;
-    cacheBooks(state.books, true);
+    updateAdminLockUi("Connexion en cours. Bienvenue Kevin Tremblay, administrateur.");
     persistSession();
+    state.books = readCachedBooks(true);
     renderBookList();
-    renderAdminBooks();
-    setPublishStatus("Module administrateur déverrouillé", true);
+    renderAdminLoading();
+    await refreshBooks({ useCache: true, silentError: false, scope: "admin" });
+    setPublishStatus("Mode administrateur déverrouillé.", true);
     showToast("Mode administrateur déverrouillé");
   } catch (error) {
     console.error(error);
     state.adminUnlocked = false;
     state.adminCode = "";
-    dom.publishForm.hidden = true;
-    dom.adminCodeInput.readOnly = false;
+    dom.adminCodeInput.value = "";
+    updateAdminLockUi("Code administrateur invalide.");
     persistSession();
-    showToast("Code administrateur invalide");
+    showToast(error?.message || "Code administrateur invalide");
   } finally {
     dom.unlockAdminBtn.disabled = false;
     dom.adminCodeInput.disabled = false;
@@ -1334,15 +1382,27 @@ async function unlockAdmin() {
   }
 }
 
-async function refreshBooks({ useCache = true, silentError = false } = {}) {
-  const cached = useCache ? readCachedBooks(state.adminUnlocked) : [];
+async function refreshBooks({ useCache = true, silentError = false, scope = "auto" } = {}) {
+  const adminScope = scope === "admin" ? true : scope === "public" ? false : state.adminUnlocked;
+
+  if (scope === "auto" && state.isAdminCandidate && !state.adminUnlocked) {
+    state.books = [];
+    renderBookList();
+    renderAdminBooks();
+    return [];
+  }
+
+  const cached = useCache ? readCachedBooks(adminScope) : [];
   if (cached.length) {
     state.books = cached;
     renderBookList();
     renderAdminBooks();
+  } else if (adminScope) {
+    renderAdminLoading();
   }
+
   try {
-    const books = await listBooks();
+    const books = await listBooks(adminScope);
     renderBookList();
     renderAdminBooks();
     return books;
@@ -1352,6 +1412,7 @@ async function refreshBooks({ useCache = true, silentError = false } = {}) {
     return cached;
   }
 }
+
 
 async function openBook(book, options = {}) {
   state.currentBook = book;
@@ -1437,16 +1498,17 @@ function logoutToGate({ clearRemember = false } = {}) {
   state.notesMap = {};
   state.lastSaveSignature = "";
   dom.adminCodeInput.value = "";
-  dom.adminCodeInput.readOnly = false;
-  dom.publishForm.hidden = true;
+  updateAdminLockUi("");
   dom.controlPanel.hidden = true;
   dom.menuBackdrop.hidden = true;
+  dom.adminPanel.hidden = true;
   setGateMessage("");
   setGateLoading(false);
   switchScreen("gate");
   clearSessionStorage();
   if (clearRemember) clearRememberedIdentity();
 }
+
 
 async function handleLogin(event) {
   if (event) event.preventDefault();
@@ -1473,11 +1535,19 @@ async function handleLogin(event) {
     rememberEmail(email);
     persistSession();
     dom.adminPanel.hidden = !state.isAdminCandidate;
-    dom.publishForm.hidden = true;
-    dom.adminCodeInput.readOnly = false;
-    setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
     switchScreen("library");
-    await refreshBooks({ useCache: true, silentError: true });
+
+    if (state.isAdminCandidate) {
+      state.books = [];
+      updateAdminLockUi("Entre le code administrateur pour continuer.");
+      renderBookList();
+      renderAdminBooks();
+    } else {
+      renderBookList();
+      renderAdminBooks();
+      setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
+      await refreshBooks({ useCache: true, silentError: true, scope: "public" });
+    }
   } catch (error) {
     console.error(error);
     setGateMessage(error.message || "Accès refusé.", "error");
@@ -1497,40 +1567,43 @@ async function restoreSessionIfPossible() {
 
   const saved = readSavedSession();
   if (!saved?.email) return;
-  dom.emailInput.value = saved.email;
-  dom.rememberMeInput.checked = saved.rememberMe !== false;
-  state.rememberMe = saved.rememberMe !== false;
 
-  try {
-    dom.loginBtn.disabled = true;
-    setGateLoading(true, "Validation de votre identité, veuillez patienter quelques instants.");
-    const response = await auth(saved.email);
-    if (!response?.ok) throw new Error(response?.message || "Session invalide.");
-    state.email = saved.email;
-    state.isAdminCandidate = !!response.isAdminCandidate;
-    state.adminUnlocked = !!saved.adminUnlocked && !!state.isAdminCandidate;
-    state.adminCode = state.adminUnlocked ? String(saved.adminCode || "") : "";
-    dom.adminPanel.hidden = !state.isAdminCandidate;
-    dom.adminCodeInput.value = state.adminCode;
-    dom.adminCodeInput.readOnly = !!state.adminUnlocked;
-    dom.publishForm.hidden = !state.adminUnlocked;
-    switchScreen("library");
-    setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
-    await refreshBooks({ useCache: true, silentError: true });
+  state.email = normalizeEmail(saved.email);
+  state.rememberMe = saved.rememberMe !== false;
+  dom.emailInput.value = state.email;
+  dom.rememberMeInput.checked = state.rememberMe;
+  state.isAdminCandidate = inferAdminCandidateFromEmail(state.email);
+  state.adminUnlocked = !!saved.adminUnlocked && !!state.isAdminCandidate && !!saved.adminCode;
+  state.adminCode = state.adminUnlocked ? String(saved.adminCode || "") : "";
+  dom.adminPanel.hidden = !state.isAdminCandidate;
+  dom.adminCodeInput.value = state.adminCode;
+  updateAdminLockUi(state.adminUnlocked ? "Connexion en cours. Bienvenue Kevin Tremblay, administrateur." : "Entre le code administrateur pour continuer.");
+  switchScreen("library");
+
+  if (state.isAdminCandidate) {
+    state.books = readCachedBooks(state.adminUnlocked);
+    renderBookList();
+    renderAdminBooks();
+    if (state.adminUnlocked) {
+      refreshBooks({ useCache: true, silentError: true, scope: "admin" }).then(async () => {
+        if (saved.currentBookId) {
+          const book = getBookById(saved.currentBookId);
+          if (book) await openBook(book, { page: saved.currentPage, mode: saved.mode });
+        }
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  state.books = readCachedBooks(false);
+  renderBookList();
+  renderAdminBooks();
+  refreshBooks({ useCache: true, silentError: true, scope: "public" }).then(async () => {
     if (saved.currentBookId) {
       const book = getBookById(saved.currentBookId);
-      if (book) {
-        await openBook(book, { page: saved.currentPage, mode: saved.mode });
-      }
+      if (book) await openBook(book, { page: saved.currentPage, mode: saved.mode });
     }
-  } catch (error) {
-    console.warn("Session non restaurée", error);
-    logoutToGate({ clearRemember: false });
-    dom.emailInput.value = saved.email;
-  } finally {
-    setGateLoading(false);
-    dom.loginBtn.disabled = false;
-  }
+  }).catch(() => {});
 }
 
 function setupInstallPrompt() {
