@@ -16,7 +16,8 @@ const STORAGE_KEYS = {
   rememberedEmail: `${CONFIG.appName || "reader"}:remembered-email`,
   rememberedFlag: `${CONFIG.appName || "reader"}:remember-flag`,
   session: `${CONFIG.appName || "reader"}:session`,
-  persistentSession: `${CONFIG.appName || "reader"}:persistent-session`
+  persistentSession: `${CONFIG.appName || "reader"}:persistent-session`,
+  booksCache: `${CONFIG.appName || "reader"}:books-cache`
 };
 
 const dom = {
@@ -401,6 +402,18 @@ function clearRememberedIdentity() {
   }
 }
 
+function booksCacheKey() {
+  return `${STORAGE_KEYS.booksCache}:${state.email}:${state.adminUnlocked ? 'admin' : 'user'}`;
+}
+
+function saveBooksCache(books) {
+  saveLocalJson(booksCacheKey(), Array.isArray(books) ? books : []);
+}
+
+function readBooksCache() {
+  return loadLocalJson(booksCacheKey(), []);
+}
+
 function getBookById(bookId) {
   return state.books.find((book) => book.bookId === bookId) || null;
 }
@@ -728,11 +741,24 @@ function extractPageTextFromRawString(rawText) {
   return blocks;
 }
 
+async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.warn('Chargement JSON impossible', error);
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 async function loadTextJson(book) {
   if (!book.jsonPath) return null;
-  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "no-store" });
-  if (!response.ok) return null;
-  return response.json();
+  return fetchJsonWithTimeout(computePublicAssetUrl(book.jsonPath));
 }
 
 async function loadPdfDocument(book) {
@@ -1123,7 +1149,7 @@ async function publishBook(event) {
     let published = false;
     for (let attempt = 1; attempt <= (CONFIG.maxPublishPollAttempts || 8); attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, CONFIG.publishPollDelayMs || 3500));
-      await refreshBooks();
+      await refreshBooks({ background: true });
       const book = getBookById(bookId);
       if (book && book.jsonPath && book.pdfPath) {
         published = true;
@@ -1233,11 +1259,40 @@ async function unlockAdmin() {
   }
 }
 
-async function refreshBooks() {
-  const books = await listBooks();
-  renderBookList();
-  renderAdminBooks();
-  return books;
+async function refreshBooks(options = {}) {
+  const { background = false } = options;
+  const cachedBooks = readBooksCache();
+  if (cachedBooks.length && !state.books.length) {
+    state.books = cachedBooks;
+    renderBookList();
+    renderAdminBooks();
+  }
+
+  dom.refreshBooksBtn.disabled = true;
+  dom.reloadAdminBooksBtn.disabled = true;
+  if (!background) dom.libraryMeta.textContent = state.isAdminCandidate ? `${state.email} - actualisation en cours...` : `${state.email} - actualisation en cours...`;
+
+  try {
+    const books = await listBooks();
+    saveBooksCache(books);
+    renderBookList();
+    renderAdminBooks();
+    return books;
+  } catch (error) {
+    console.error(error);
+    if (state.books.length) {
+      renderBookList();
+      renderAdminBooks();
+      showToast('Actualisation impossible, ancienne liste conservée');
+      return state.books;
+    }
+    throw error;
+  } finally {
+    dom.refreshBooksBtn.disabled = false;
+    dom.reloadAdminBooksBtn.disabled = false;
+    renderBookList();
+    renderAdminBooks();
+  }
 }
 
 async function openBook(book, options = {}) {
@@ -1255,50 +1310,64 @@ async function openBook(book, options = {}) {
   switchScreen("reader");
   toggleMenu(false);
 
-  const cachedPrefs = readCachedPrefs(book.bookId);
-  const cachedBookmarks = readCachedBookmarks(book.bookId);
-  const cachedNotes = readCachedNotes(book.bookId);
-  if (cachedPrefs) state.prefs = { ...DEFAULT_PREFS, ...cachedPrefs };
-  state.bookmarks = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
-  state.notesMap = cachedNotes && typeof cachedNotes === "object" ? cachedNotes : {};
-  updateUiLabels();
+  try {
+    const cachedPrefs = readCachedPrefs(book.bookId);
+    const cachedBookmarks = readCachedBookmarks(book.bookId);
+    const cachedNotes = readCachedNotes(book.bookId);
+    if (cachedPrefs) state.prefs = { ...DEFAULT_PREFS, ...cachedPrefs };
+    else state.prefs = { ...DEFAULT_PREFS };
+    state.bookmarks = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+    state.notesMap = cachedNotes && typeof cachedNotes === "object" ? cachedNotes : {};
+    updateUiLabels();
 
-  const [progress, prefs, bookmarks, notes, jsonDoc] = await Promise.all([
-    fetchProgress(book.bookId).catch(() => null),
-    fetchPreferences(book.bookId).catch(() => null),
-    fetchBookmarks(book.bookId).catch(() => []),
-    fetchNotes(book.bookId).catch(() => []),
-    loadTextJson(book).catch(() => null)
-  ]);
+    const [progress, prefs, bookmarks, notes, jsonDoc] = await Promise.all([
+      fetchProgress(book.bookId).catch(() => null),
+      fetchPreferences(book.bookId).catch(() => null),
+      fetchBookmarks(book.bookId).catch(() => []),
+      fetchNotes(book.bookId).catch(() => []),
+      loadTextJson(book).catch(() => null)
+    ]);
 
-  state.textDoc = jsonDoc;
-  if (prefs) state.prefs = { ...DEFAULT_PREFS, ...state.prefs, ...prefs };
-  state.bookmarks = bookmarks.length ? bookmarks : state.bookmarks;
-  state.notesMap = notes.length ? normalizeNoteRows(notes) : state.notesMap;
+    state.textDoc = jsonDoc;
+    if (prefs) state.prefs = { ...DEFAULT_PREFS, ...state.prefs, ...prefs };
+    state.bookmarks = bookmarks.length ? bookmarks : state.bookmarks;
+    state.notesMap = notes.length ? normalizeNoteRows(notes) : state.notesMap;
 
-  if (jsonDoc?.totalPages) state.totalPages = Number(jsonDoc.totalPages) || state.totalPages;
-  if (!state.totalPages && book.allowPdfMode) {
-    const pdfDoc = await loadPdfDocument(book);
-    state.totalPages = pdfDoc.numPages;
+    if (jsonDoc?.totalPages) state.totalPages = Number(jsonDoc.totalPages) || state.totalPages;
+    if (!state.totalPages && book.allowPdfMode) {
+      const pdfDoc = await loadPdfDocument(book);
+      state.totalPages = pdfDoc.numPages;
+    }
+
+    if (!jsonDoc && !book.allowPdfMode) {
+      throw new Error("Ce livre n'est pas disponible pour le moment.");
+    }
+
+    const desiredMode = options.mode || prefs?.preferredMode || state.prefs.preferredMode || "text";
+    if (!jsonDoc) state.mode = "pdf";
+    else if (desiredMode === "pdf" && book.allowPdfMode) state.mode = "pdf";
+    else state.mode = "text";
+
+    if (state.mode === "pdf") {
+      await loadPdfDocument(book);
+      state.totalPages = state.pdfDoc?.numPages || state.totalPages;
+    }
+
+    const restoredPage = options.page || progress?.currentPage || 1;
+    state.currentPage = Math.max(1, Math.min(state.totalPages || 1, Number(restoredPage) || 1));
+    persistSession();
+    cacheCurrentBookData();
+    await renderCurrentPage();
+    setSaveStatus("Prêt");
+  } catch (error) {
+    console.error(error);
+    setSaveStatus("Impossible de charger le livre");
+    showToast(error?.message || "Impossible de charger le livre");
+    state.currentBook = null;
+    switchScreen("library");
+  } finally {
+    setReaderLoading(false);
   }
-
-  const desiredMode = options.mode || prefs?.preferredMode || state.prefs.preferredMode || "text";
-  if (!jsonDoc) state.mode = book.allowPdfMode ? "pdf" : "text";
-  else if (desiredMode === "pdf" && book.allowPdfMode) state.mode = "pdf";
-  else state.mode = "text";
-
-  if (state.mode === "pdf") {
-    await loadPdfDocument(book);
-    state.totalPages = state.pdfDoc?.numPages || state.totalPages;
-  }
-
-  const restoredPage = options.page || progress?.currentPage || 1;
-  state.currentPage = Math.max(1, Math.min(state.totalPages || 1, Number(restoredPage) || 1));
-  persistSession();
-  cacheCurrentBookData();
-  await renderCurrentPage();
-  setReaderLoading(false);
-  setSaveStatus("Prêt");
 }
 
 function logoutToGate({ clearRemember = false } = {}) {
@@ -1383,7 +1452,7 @@ async function restoreSessionIfPossible() {
     dom.adminPanel.hidden = !state.isAdminCandidate;
     switchScreen("library");
     setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
-    await refreshBooks();
+    await refreshBooks({ background: true });
     if (saved.currentBookId) {
       const book = getBookById(saved.currentBookId);
       if (book) {
@@ -1407,9 +1476,11 @@ function setupInstallPrompt() {
   });
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch((error) => {
-      console.warn("Service worker non enregistré", error);
-    });
+    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" })
+      .then((registration) => registration.update().catch(() => null))
+      .catch((error) => {
+        console.warn("Service worker non enregistré", error);
+      });
   }
 }
 
