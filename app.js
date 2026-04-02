@@ -1106,14 +1106,12 @@ async function convertPdfFileToJson(file, metadata) {
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
     const blocks = ensureBlocksArray(extractPageText(textContent.items));
-    const joinedText = blocks.map((block) => block.text).join("\n\n");
+    const charCount = blocks.reduce((total, block) => total + String(block?.text || "").replace(/\s+/g, "").length, 0);
     pages.push({
       page: pageNumber,
       blocks,
-      text: joinedText,
-      html: blocksToHtml(blocks),
       hasUsableText: blocks.length > 0,
-      charCount: joinedText.replace(/\s+/g, "").length
+      charCount
     });
   }
 
@@ -1128,15 +1126,17 @@ async function convertPdfFileToJson(file, metadata) {
   };
 }
 
-async function postAdminAction(formData) {
+async function postAdminAction(formData, options = {}) {
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 240000;
+  const timeoutMessage = options.timeoutMessage || "Délai dépassé lors de la publication.";
   return new Promise((resolve, reject) => {
     const requestId = `admin_post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const iframe = document.createElement("iframe");
     const form = document.createElement("form");
     const timeout = window.setTimeout(() => {
       cleanup();
-      reject(new Error("Délai dépassé lors de la publication."));
-    }, 120000);
+      reject(new Error(timeoutMessage));
+    }, timeoutMs);
 
     function cleanup() {
       window.clearTimeout(timeout);
@@ -1180,6 +1180,22 @@ async function postAdminAction(formData) {
   });
 }
 
+async function publishAdminStage(action, payload, stageLabel, options = {}) {
+  dom.publishProgress.textContent = stageLabel;
+  const formData = new FormData();
+  formData.append("action", action);
+  formData.append("email", state.email);
+  formData.append("adminCode", state.adminCode);
+  formData.append("repoOwner", CONFIG.githubRepoOwner || "");
+  formData.append("repoName", CONFIG.githubRepoName || "");
+  formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
+  formData.append("assetsBasePath", CONFIG.githubAssetsBasePath || "assets/books");
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    formData.append(key, value == null ? "" : String(value));
+  });
+  return postAdminAction(formData, options);
+}
+
 async function publishBook(event) {
   event.preventDefault();
   if (!state.adminUnlocked) {
@@ -1209,42 +1225,86 @@ async function publishBook(event) {
     const jsonDoc = await convertPdfFileToJson(file, { title, bookId, author });
     const arrayBuffer = await file.arrayBuffer();
     const pdfBase64 = arrayBufferToBase64(arrayBuffer);
-    const jsonString = JSON.stringify(jsonDoc, null, 2);
-    const jsonBase64 = utf8ToBase64(jsonString);
+    const jsonBase64 = utf8ToBase64(JSON.stringify(jsonDoc));
 
     let coverBase64 = "";
     let coverExtension = "";
     const coverFile = dom.bookCoverInput.files?.[0];
     if (coverFile) {
+      dom.publishProgress.textContent = "Préparation de l’image de couverture...";
       coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
       coverExtension = (coverFile.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
     }
 
-    dom.publishProgress.textContent = "Publication du livre en cours...";
-    const formData = new FormData();
-    formData.append("action", "publishBook");
-    formData.append("email", state.email);
-    formData.append("adminCode", state.adminCode);
-    formData.append("bookId", bookId);
-    formData.append("title", title);
-    formData.append("author", author);
-    formData.append("publishNow", dom.publishNowInput.checked ? "true" : "false");
-    formData.append("allowPdfMode", dom.allowPdfModeInput.checked ? "true" : "false");
-    formData.append("sourceFileName", file.name);
-    formData.append("totalPages", String(jsonDoc.totalPages));
-    formData.append("pdfBase64", pdfBase64);
-    formData.append("jsonBase64", jsonBase64);
-    formData.append("coverBase64", coverBase64);
-    formData.append("coverExtension", coverExtension);
-    formData.append("repoOwner", CONFIG.githubRepoOwner || "");
-    formData.append("repoName", CONFIG.githubRepoName || "");
-    formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
-    formData.append("assetsBasePath", CONFIG.githubAssetsBasePath || "assets/books");
+    setPublishStatus("Téléversement du JSON...");
+    const jsonUpload = await publishAdminStage(
+      "uploadBookJson",
+      {
+        bookId,
+        title,
+        author,
+        sourceFileName: file.name,
+        totalPages: String(jsonDoc.totalPages),
+        jsonBase64
+      },
+      "Téléversement de la version texte du livre...",
+      { timeoutMessage: "Délai dépassé pendant le téléversement du JSON." }
+    );
+    if (!jsonUpload?.ok) throw new Error(jsonUpload?.details || jsonUpload?.message || "Échec du téléversement du JSON.");
 
-    const response = await postAdminAction(formData);
-    if (!response?.ok) throw new Error(response?.details || response?.message || "Impossible de publier le livre.");
+    setPublishStatus("Téléversement du PDF...");
+    const pdfUpload = await publishAdminStage(
+      "uploadBookPdf",
+      {
+        bookId,
+        title,
+        author,
+        sourceFileName: file.name,
+        totalPages: String(jsonDoc.totalPages),
+        pdfBase64
+      },
+      "Téléversement du PDF vers GitHub...",
+      { timeoutMessage: "Délai dépassé pendant le téléversement du PDF." }
+    );
+    if (!pdfUpload?.ok) throw new Error(pdfUpload?.details || pdfUpload?.message || "Échec du téléversement du PDF.");
 
-    if (response.book) mergeBookInState(response.book);
+    let coverUpload = null;
+    if (coverBase64) {
+      setPublishStatus("Téléversement de la couverture...");
+      coverUpload = await publishAdminStage(
+        "uploadBookCover",
+        {
+          bookId,
+          coverBase64,
+          coverExtension
+        },
+        "Téléversement de la couverture...",
+        { timeoutMessage: "Délai dépassé pendant le téléversement de la couverture." }
+      );
+      if (!coverUpload?.ok) throw new Error(coverUpload?.details || coverUpload?.message || "Échec du téléversement de la couverture.");
+    }
+
+    setPublishStatus("Enregistrement du livre...");
+    const finalizeResponse = await publishAdminStage(
+      "finalizeBookPublication",
+      {
+        bookId,
+        title,
+        author,
+        publishNow: dom.publishNowInput.checked ? "true" : "false",
+        allowPdfMode: dom.allowPdfModeInput.checked ? "true" : "false",
+        sourceFileName: file.name,
+        totalPages: String(jsonDoc.totalPages),
+        pdfPath: jsonUpload?.pdfPath || pdfUpload?.pdfPath || "",
+        jsonPath: jsonUpload?.jsonPath || "",
+        coverPath: coverUpload?.coverPath || ""
+      },
+      "Enregistrement du livre dans la bibliothèque...",
+      { timeoutMessage: "Délai dépassé pendant l’enregistrement du livre." }
+    );
+    if (!finalizeResponse?.ok) throw new Error(finalizeResponse?.details || finalizeResponse?.message || "Impossible d’enregistrer le livre.");
+
+    if (finalizeResponse.book) mergeBookInState(finalizeResponse.book);
     renderBookList();
     renderAdminBooks();
     dom.publishForm.reset();
