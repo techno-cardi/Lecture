@@ -1,0 +1,296 @@
+const SETTINGS = {
+  sheetNames: {
+    whitelist: 'AllowedEmails',
+    progress: 'Progress'
+  },
+  allowedDomains: ['educ.cscapitale.qc.ca', 'cscapitale.qc.ca']
+};
+
+function doGet(e) {
+  ensureSheets_();
+
+  const action = readParam_(e, 'action');
+  const response = handleAction_(action, e);
+
+  return createOutput_(response, readParam_(e, 'prefix'));
+}
+
+function handleAction_(action, e) {
+  try {
+    switch (action) {
+      case 'auth':
+        return handleAuth_(e);
+      case 'getProgress':
+        return handleGetProgress_(e);
+      case 'saveProgress':
+        return handleSaveProgress_(e);
+      case 'ping':
+        return { ok: true, message: 'Service actif.' };
+      default:
+        return { ok: false, message: 'Action inconnue.' };
+    }
+  } catch (error) {
+    console.error(error);
+    return {
+      ok: false,
+      message: 'Erreur serveur.',
+      details: String(error && error.message ? error.message : error)
+    };
+  }
+}
+
+function handleAuth_(e) {
+  const email = normalizeEmail_(readParam_(e, 'email'));
+  if (!isValidEmail_(email)) {
+    return { ok: false, message: 'Courriel invalide.' };
+  }
+
+  if (!isAllowedDomain_(email)) {
+    return { ok: false, message: 'Domaine non autorisé.' };
+  }
+
+  if (!isWhitelisted_(email)) {
+    return { ok: false, message: 'Courriel non autorisé.' };
+  }
+
+  return {
+    ok: true,
+    email: email,
+    message: 'Accès autorisé.'
+  };
+}
+
+function handleGetProgress_(e) {
+  const email = normalizeEmail_(readParam_(e, 'email'));
+  const docId = sanitizeText_(readParam_(e, 'docId'));
+
+  if (!isValidEmail_(email) || !docId) {
+    return { ok: false, message: 'Paramètres invalides.' };
+  }
+
+  if (!isWhitelisted_(email)) {
+    return { ok: false, message: 'Courriel non autorisé.' };
+  }
+
+  const progressSheet = getSheet_(SETTINGS.sheetNames.progress);
+  const key = buildKey_(email, docId);
+  const match = progressSheet
+    .getRange(2, 1, Math.max(progressSheet.getLastRow() - 1, 0), 1)
+    .createTextFinder(key)
+    .matchEntireCell(true)
+    .findNext();
+
+  if (!match) {
+    return {
+      ok: true,
+      progress: null
+    };
+  }
+
+  const row = match.getRow();
+  const values = progressSheet.getRange(row, 1, 1, 9).getValues()[0];
+
+  return {
+    ok: true,
+    progress: {
+      key: values[0],
+      email: values[1],
+      docId: values[2],
+      docName: values[3],
+      page: Number(values[4]) || 1,
+      pageProgress: Number(values[5]) || 0,
+      overallProgress: Number(values[6]) || 0,
+      lastSeen: values[7]
+    }
+  };
+}
+
+function handleSaveProgress_(e) {
+  const email = normalizeEmail_(readParam_(e, 'email'));
+  const docId = sanitizeText_(readParam_(e, 'docId'));
+  const docName = sanitizeText_(readParam_(e, 'docName'));
+  const page = clampNumber_(readParam_(e, 'page'), 1, 100000, 1);
+  const pageProgress = clampNumber_(readParam_(e, 'pageProgress'), 0, 1, 0);
+  const overallProgress = clampNumber_(readParam_(e, 'overallProgress'), 0, 1, 0);
+  const userAgent = sanitizeText_(readParam_(e, 'userAgent'), 500);
+
+  if (!isValidEmail_(email) || !docId) {
+    return { ok: false, message: 'Paramètres invalides.' };
+  }
+
+  if (!isWhitelisted_(email)) {
+    return { ok: false, message: 'Courriel non autorisé.' };
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const progressSheet = getSheet_(SETTINGS.sheetNames.progress);
+    const key = buildKey_(email, docId);
+    const lastSeen = new Date();
+
+    const existingRange = progressSheet
+      .getRange(2, 1, Math.max(progressSheet.getLastRow() - 1, 0), 1)
+      .createTextFinder(key)
+      .matchEntireCell(true)
+      .findNext();
+
+    const rowValues = [[
+      key,
+      email,
+      docId,
+      docName,
+      page,
+      pageProgress,
+      overallProgress,
+      lastSeen,
+      userAgent
+    ]];
+
+    if (existingRange) {
+      progressSheet.getRange(existingRange.getRow(), 1, 1, 9).setValues(rowValues);
+    } else {
+      progressSheet.getRange(progressSheet.getLastRow() + 1, 1, 1, 9).setValues(rowValues);
+    }
+
+    return {
+      ok: true,
+      message: 'Progression enregistrée.',
+      saved: {
+        email: email,
+        docId: docId,
+        page: page,
+        pageProgress: pageProgress,
+        overallProgress: overallProgress,
+        lastSeen: lastSeen
+      }
+    };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function ensureSheets_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+  const whitelistSheet = spreadsheet.getSheetByName(SETTINGS.sheetNames.whitelist) || spreadsheet.insertSheet(SETTINGS.sheetNames.whitelist);
+  const progressSheet = spreadsheet.getSheetByName(SETTINGS.sheetNames.progress) || spreadsheet.insertSheet(SETTINGS.sheetNames.progress);
+
+  if (whitelistSheet.getLastRow() === 0) {
+    whitelistSheet.getRange(1, 1, 1, 4).setValues([[
+      'email',
+      'active',
+      'note',
+      'addedAt'
+    ]]);
+    whitelistSheet.setFrozenRows(1);
+  }
+
+  if (progressSheet.getLastRow() === 0) {
+    progressSheet.getRange(1, 1, 1, 9).setValues([[
+      'key',
+      'email',
+      'docId',
+      'docName',
+      'page',
+      'pageProgress',
+      'overallProgress',
+      'lastSeen',
+      'userAgent'
+    ]]);
+    progressSheet.setFrozenRows(1);
+  }
+}
+
+function setupSpreadsheet() {
+  ensureSheets_();
+}
+
+function isWhitelisted_(email) {
+  const whitelistSheet = getSheet_(SETTINGS.sheetNames.whitelist);
+  const lastRow = whitelistSheet.getLastRow();
+  if (lastRow < 2) return false;
+
+  const values = whitelistSheet.getRange(2, 1, lastRow - 1, 2).getValues();
+
+  for (let i = 0; i < values.length; i += 1) {
+    const rowEmail = normalizeEmail_(values[i][0]);
+    const isActive = toBoolean_(values[i][1]);
+    if (rowEmail === email && isActive) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getSheet_(name) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet) {
+    throw new Error('Feuille introuvable: ' + name);
+  }
+  return sheet;
+}
+
+function createOutput_(payload, prefix) {
+  const safePrefix = sanitizePrefix_(prefix);
+  const text = JSON.stringify(payload);
+
+  if (safePrefix) {
+    return ContentService
+      .createTextOutput(safePrefix + '(' + text + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  return ContentService
+    .createTextOutput(text)
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function sanitizePrefix_(value) {
+  const prefix = String(value || '').trim();
+  if (!prefix) return '';
+  return /^[A-Za-z_$][0-9A-Za-z_$\.]*$/.test(prefix) ? prefix : '';
+}
+
+function normalizeEmail_(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isValidEmail_(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isAllowedDomain_(email) {
+  const domain = email.split('@')[1] || '';
+  if (!SETTINGS.allowedDomains || SETTINGS.allowedDomains.length === 0) return true;
+  return SETTINGS.allowedDomains.indexOf(domain) !== -1;
+}
+
+function readParam_(e, name) {
+  if (!e || !e.parameter) return '';
+  return e.parameter[name] || '';
+}
+
+function sanitizeText_(value, maxLength) {
+  const trimmed = String(value || '').trim();
+  if (!maxLength) return trimmed;
+  return trimmed.slice(0, maxLength);
+}
+
+function clampNumber_(value, min, max, fallback) {
+  const number = Number(value);
+  if (!isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function buildKey_(email, docId) {
+  return email + '__' + docId;
+}
+
+function toBoolean_(value) {
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['true', '1', 'yes', 'oui', 'vrai'].indexOf(normalized) !== -1;
+}

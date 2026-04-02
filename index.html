@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="fr-CA">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>Lecteur PDF protégé</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="app-shell">
+    <section id="gate" class="panel">
+      <h1 class="app-title">Lecture du document</h1>
+      <p class="app-subtitle">Entre ton courriel scolaire pour accéder au document.</p>
+
+      <form id="loginForm" class="login-form" autocomplete="on">
+        <label for="emailInput" class="sr-only">Courriel scolaire</label>
+        <input
+          id="emailInput"
+          name="email"
+          type="email"
+          inputmode="email"
+          autocomplete="email"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          placeholder="prenom.nom@educ.cscapitale.qc.ca"
+          required
+        >
+        <button id="loginBtn" type="submit">Accéder</button>
+      </form>
+
+      <p id="gateMessage" class="message" aria-live="polite"></p>
+
+      <div class="small-note">
+        <p>Lecture uniquement. Le téléchargement simple, la copie directe et certaines actions usuelles sont limités, sans protection absolue.</p>
+      </div>
+    </section>
+
+    <section id="reader" class="reader" hidden>
+      <header class="topbar">
+        <div class="topbar-main">
+          <div>
+            <div id="docLabel" class="doc-label"></div>
+            <div id="pageLabel" class="page-label">Page 0 / 0</div>
+          </div>
+          <button id="switchUserBtn" class="secondary-btn" type="button">Changer de courriel</button>
+        </div>
+
+        <div class="toolbar">
+          <button id="prevBtn" class="nav-btn" type="button">Précédente</button>
+          <button id="nextBtn" class="nav-btn" type="button">Suivante</button>
+
+          <div class="page-jump">
+            <label for="pageInput" class="sr-only">Aller à la page</label>
+            <input id="pageInput" type="number" min="1" step="1" inputmode="numeric">
+            <button id="goBtn" class="secondary-btn" type="button">Aller</button>
+          </div>
+
+          <div class="zoom-controls">
+            <button id="zoomOutBtn" class="secondary-btn" type="button">A-</button>
+            <button id="fitBtn" class="secondary-btn" type="button">Ajuster</button>
+            <button id="zoomInBtn" class="secondary-btn" type="button">A+</button>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <span id="saveStatus">En attente</span>
+        </div>
+      </header>
+
+      <main id="viewerShell" class="viewer-shell" tabindex="0" aria-label="Lecteur PDF">
+        <div id="pdfCanvasWrap" class="pdf-canvas-wrap">
+          <canvas id="pdfCanvas"></canvas>
+        </div>
+      </main>
+    </section>
+  </div>
+
+  <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
+
+  <script src="./config.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
