@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f172a">
-  <title>Lecteur PDF protégé</title>
+  <title>Lecteur scolaire</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <div class="app-shell">
-    <section id="gate" class="panel">
+    <section id="gate" class="gate-screen panel">
       <h1 class="app-title">Lecture du document</h1>
-      <p class="app-subtitle">Entre ton courriel scolaire pour accéder au document.</p>
+      <p class="app-subtitle">Entre ton courriel scolaire pour accéder à la bibliothèque.</p>
 
       <form id="loginForm" class="login-form" autocomplete="on">
         <label for="emailInput" class="sr-only">Courriel scolaire</label>
@@ -30,55 +30,169 @@
         <button id="loginBtn" type="submit">Accéder</button>
       </form>
 
-      <p id="gateMessage" class="message" aria-live="polite"></p>
+      <p id="gateMessage" class="gate-message" aria-live="polite"></p>
 
       <div class="small-note">
-        <p>Lecture uniquement. Le téléchargement simple, la copie directe et certaines actions usuelles sont limités, sans protection absolue.</p>
+        <p>Lecture web uniquement. Le document reste limité par les protections normales du navigateur.</p>
       </div>
     </section>
 
-    <section id="reader" class="reader" hidden>
-      <header class="topbar">
-        <div class="topbar-main">
+    <section id="library" class="library-screen" hidden>
+      <header class="library-header">
+        <div>
+          <p class="eyebrow">Bibliothèque</p>
+          <h2 class="library-title">Choisis un livre</h2>
+          <p id="libraryMeta" class="library-meta"></p>
+        </div>
+        <div class="header-actions">
+          <button id="refreshBooksBtn" class="secondary-btn" type="button">Actualiser</button>
+          <button id="logoutBtn" class="ghost-btn" type="button">Changer de courriel</button>
+        </div>
+      </header>
+
+      <section id="bookList" class="book-list" aria-live="polite"></section>
+
+      <section id="adminPanel" class="admin-panel panel" hidden>
+        <div class="admin-head">
+          <div>
+            <p class="eyebrow">Administration</p>
+            <h3>Préparer et publier un livre</h3>
+            <p class="admin-help">L’extraction du texte se fait ici, en amont, avec ton fichier local. Les élèves ne convertissent rien.</p>
+          </div>
+        </div>
+
+        <div class="admin-lock-row">
+          <input id="adminCodeInput" type="password" autocomplete="off" placeholder="Code administrateur">
+          <button id="unlockAdminBtn" class="secondary-btn" type="button">Déverrouiller</button>
+        </div>
+
+        <form id="publishForm" class="publish-form" hidden>
+          <div class="publish-grid">
+            <div>
+              <label for="bookTitleInput">Titre du livre</label>
+              <input id="bookTitleInput" type="text" required placeholder="Ex. Le poids de l’influence">
+            </div>
+            <div>
+              <label for="bookIdInput">Identifiant du livre</label>
+              <input id="bookIdInput" type="text" placeholder="Ex. poids-influence-2026">
+            </div>
+          </div>
+
+          <div class="publish-grid">
+            <div>
+              <label for="bookAuthorInput">Auteur ou autrice</label>
+              <input id="bookAuthorInput" type="text" placeholder="Optionnel">
+            </div>
+            <div>
+              <label for="bookPdfInput">Fichier PDF</label>
+              <input id="bookPdfInput" type="file" accept="application/pdf" required>
+            </div>
+          </div>
+
+          <label class="check-row">
+            <input id="publishNowInput" type="checkbox" checked>
+            <span>Publier immédiatement pour les élèves</span>
+          </label>
+
+          <div class="publish-actions">
+            <button id="publishBtn" class="nav-btn" type="submit">Convertir et publier</button>
+            <span id="publishStatus" class="save-status">En attente</span>
+          </div>
+          <div id="publishProgress" class="publish-progress"></div>
+        </form>
+
+        <div class="admin-books-wrap">
+          <div class="admin-books-head">
+            <h4>Livres enregistrés</h4>
+            <button id="reloadAdminBooksBtn" class="secondary-btn" type="button">Recharger</button>
+          </div>
+          <div id="adminBooksList" class="admin-books-list"></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="reader" class="reader-screen" hidden>
+      <button id="backToLibraryBtn" class="back-button" type="button" title="Retour à la bibliothèque">←</button>
+      <button id="menuToggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" title="Ouvrir le menu">☰</button>
+
+      <div id="menuBackdrop" class="menu-backdrop" hidden></div>
+
+      <aside id="controlPanel" class="control-panel" hidden>
+        <div class="panel-header">
           <div>
             <div id="docLabel" class="doc-label"></div>
             <div id="pageLabel" class="page-label">Page 0 / 0</div>
           </div>
-          <button id="switchUserBtn" class="secondary-btn" type="button">Changer de courriel</button>
+          <button id="closeMenuBtn" class="icon-btn" type="button" title="Fermer">✕</button>
         </div>
 
-        <div class="toolbar">
+        <div class="progress-block">
+          <div class="progress-meta">
+            <span>Progression</span>
+            <span id="progressText">0 %</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+        </div>
+
+        <div class="panel-grid primary-grid">
           <button id="prevBtn" class="nav-btn" type="button">Précédente</button>
           <button id="nextBtn" class="nav-btn" type="button">Suivante</button>
+        </div>
 
-          <div class="page-jump">
-            <label for="pageInput" class="sr-only">Aller à la page</label>
-            <input id="pageInput" type="number" min="1" step="1" inputmode="numeric">
-            <button id="goBtn" class="secondary-btn" type="button">Aller</button>
+        <div class="jump-row">
+          <label for="pageInput" class="sr-only">Aller à la page</label>
+          <input id="pageInput" type="number" min="1" step="1" inputmode="numeric">
+          <button id="goBtn" class="secondary-btn" type="button">Aller</button>
+        </div>
+
+        <div class="panel-grid compact-grid">
+          <button id="modeToggleBtn" class="secondary-btn" type="button">Mode PDF</button>
+          <button id="fitBtn" class="secondary-btn" type="button">Ajuster</button>
+          <button id="fontMinusBtn" class="secondary-btn" type="button">Police -</button>
+          <button id="fontPlusBtn" class="secondary-btn" type="button">Police +</button>
+          <button id="bookmarkBtn" class="secondary-btn" type="button">Ajouter un signet</button>
+          <button id="saveBtn" class="secondary-btn" type="button">Sauvegarder ma progression</button>
+          <button id="themeBtn" class="secondary-btn" type="button">Mode nuit</button>
+          <button id="switchUserBtn" class="ghost-btn" type="button">Changer de courriel</button>
+        </div>
+
+        <div class="bookmarks-block">
+          <div class="bookmarks-head">
+            <span>Signets</span>
           </div>
+          <div id="bookmarkList" class="bookmark-list"></div>
+        </div>
 
-          <div class="zoom-controls">
-            <button id="zoomOutBtn" class="secondary-btn" type="button">A-</button>
-            <button id="fitBtn" class="secondary-btn" type="button">Ajuster</button>
-            <button id="zoomInBtn" class="secondary-btn" type="button">A+</button>
+        <div class="notes-block">
+          <label for="pageNoteInput" class="notes-label">Note pour cette page</label>
+          <textarea id="pageNoteInput" rows="3" placeholder="Écris une note personnelle ici."></textarea>
+          <div class="notes-actions">
+            <button id="saveNoteBtn" class="secondary-btn" type="button">Enregistrer la note</button>
+            <span id="noteStatus" class="save-status"></span>
           </div>
         </div>
 
         <div class="status-row">
-          <span id="saveStatus">En attente</span>
+          <span id="saveStatus" class="save-status">En attente</span>
         </div>
-      </header>
+      </aside>
 
-      <main id="viewerShell" class="viewer-shell" tabindex="0" aria-label="Lecteur PDF">
-        <div id="pdfCanvasWrap" class="pdf-canvas-wrap">
-          <canvas id="pdfCanvas"></canvas>
+      <main id="viewerShell" class="viewer-shell" tabindex="0" aria-label="Lecteur">
+        <div id="readingSurface" class="reading-surface mode-text theme-paper font-medium">
+          <div id="textViewer" class="text-viewer"></div>
+          <div id="pdfViewer" class="pdf-viewer" hidden>
+            <canvas id="pdfCanvas"></canvas>
+          </div>
         </div>
       </main>
+
+      <div id="toast" class="toast" hidden></div>
     </section>
   </div>
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
-
   <script src="./config.js"></script>
   <script type="module" src="./app.js"></script>
 </body>
