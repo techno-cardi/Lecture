@@ -1,7 +1,5 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/build/pdf.min.mjs";
 
-// VERSION: v4-patch-2 — ne pas supprimer cette ligne (sert à confirmer le déploiement)
-
 const CONFIG = window.READER_CONFIG || {};
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${CONFIG.pdfJsVersion || "5.6.205"}/build/pdf.worker.min.mjs`;
 
@@ -18,8 +16,7 @@ const STORAGE_KEYS = {
   rememberedEmail: `${CONFIG.appName || "reader"}:remembered-email`,
   rememberedFlag: `${CONFIG.appName || "reader"}:remember-flag`,
   session: `${CONFIG.appName || "reader"}:session`,
-  persistentSession: `${CONFIG.appName || "reader"}:persistent-session`,
-  booksCache: `${CONFIG.appName || "reader"}:books-cache`
+  persistentSession: `${CONFIG.appName || "reader"}:persistent-session`
 };
 
 const dom = {
@@ -283,7 +280,15 @@ async function listBooks() {
     adminCode: state.adminUnlocked ? state.adminCode : ""
   });
   if (!response?.ok) throw new Error(response?.message || "Impossible de charger la bibliothèque.");
+  if (state.adminUnlocked && response.adminAuthorized !== true) {
+    state.adminUnlocked = false;
+    state.adminCode = "";
+    dom.publishForm.hidden = true;
+    dom.adminCodeInput.value = "";
+    persistSession();
+  }
   state.books = response.books || [];
+  cacheBooks(state.books, state.adminUnlocked);
   return state.books;
 }
 
@@ -340,10 +345,8 @@ function persistSession() {
   };
   try {
     sessionStorage.setItem(STORAGE_KEYS.session, JSON.stringify(payload));
-    // Toujours sauvegarder en localStorage : sur mobile, sessionStorage est effacé
-    // quand le navigateur ferme l'app. La session persistante évite de devoir
-    // se reconnecter à chaque ouverture. La déconnexion reste possible via logout.
-    localStorage.setItem(STORAGE_KEYS.persistentSession, JSON.stringify(payload));
+    if (state.rememberMe) localStorage.setItem(STORAGE_KEYS.persistentSession, JSON.stringify(payload));
+    else localStorage.removeItem(STORAGE_KEYS.persistentSession);
   } catch (error) {
     console.warn(error);
   }
@@ -408,16 +411,29 @@ function clearRememberedIdentity() {
   }
 }
 
-function booksCacheKey() {
-  return `${STORAGE_KEYS.booksCache}:${state.email}:${state.adminUnlocked ? 'admin' : 'user'}`;
+function booksCacheKey(adminMode = state.adminUnlocked) {
+  return `${CONFIG.appName || "reader"}:books-cache:${state.email}:${adminMode ? "admin" : "public"}`;
 }
 
-function saveBooksCache(books) {
-  saveLocalJson(booksCacheKey(), Array.isArray(books) ? books : []);
+function readCachedBooks(adminMode = state.adminUnlocked) {
+  const payload = loadLocalJson(booksCacheKey(adminMode), null);
+  if (!payload || !Array.isArray(payload.books)) return [];
+  return payload.books;
 }
 
-function readBooksCache() {
-  return loadLocalJson(booksCacheKey(), []);
+function cacheBooks(books = state.books, adminMode = state.adminUnlocked) {
+  if (!state.email || !Array.isArray(books)) return;
+  saveLocalJson(booksCacheKey(adminMode), { savedAt: Date.now(), books });
+  const publicBooks = books.filter((book) => book && book.published);
+  saveLocalJson(booksCacheKey(false), { savedAt: Date.now(), books: publicBooks });
+}
+
+function mergeBookInState(book) {
+  if (!book?.bookId) return;
+  const next = state.books.filter((item) => item.bookId !== book.bookId);
+  next.push(book);
+  state.books = next.sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')));
+  cacheBooks(state.books, state.adminUnlocked);
 }
 
 function getBookById(bookId) {
@@ -632,7 +648,7 @@ function normalizeLineText(parts) {
 }
 
 function extractPageText(items) {
-  if (!items?.length) return [];
+  if (!items?.length) return "";
   const sorted = [...items].sort((a, b) => {
     const ay = a.transform?.[5] || 0;
     const by = b.transform?.[5] || 0;
@@ -747,24 +763,11 @@ function extractPageTextFromRawString(rawText) {
   return blocks;
 }
 
-async function fetchJsonWithTimeout(url, timeoutMs = 12000) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch (error) {
-    console.warn('Chargement JSON impossible', error);
-    return null;
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
 async function loadTextJson(book) {
   if (!book.jsonPath) return null;
-  return fetchJsonWithTimeout(computePublicAssetUrl(book.jsonPath));
+  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "no-store" });
+  if (!response.ok) return null;
+  return response.json();
 }
 
 async function loadPdfDocument(book) {
@@ -1080,33 +1083,55 @@ async function convertPdfFileToJson(file, metadata) {
 }
 
 async function postAdminAction(formData) {
-  // Convertir FormData en objet JSON plat pour eviter la limite de taille
-  // de e.parameters Apps Script. Via e.postData.contents (text/plain + JSON),
-  // il n'y a pas de limite pratique sur la taille des valeurs.
-  const payload = {};
-  for (const [key, value] of formData.entries()) {
-    payload[key] = value;
-  }
+  return new Promise((resolve, reject) => {
+    const requestId = `admin_post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const iframe = document.createElement("iframe");
+    const form = document.createElement("form");
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Délai dépassé lors de la publication."));
+    }, 120000);
 
-  const response = await fetch(CONFIG.appsScriptUrl, {
-    method: "POST",
-    mode: "cors",
-    headers: { "Content-Type": "text/plain" },
-    body: JSON.stringify(payload)
+    function cleanup() {
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+      iframe.remove();
+      form.remove();
+    }
+
+    function onMessage(event) {
+      if (event.source !== iframe.contentWindow) return;
+      const data = event.data;
+      if (!data || data.requestId !== requestId) return;
+      cleanup();
+      resolve(data.payload || { ok: false, message: "Réponse vide du service." });
+    }
+
+    iframe.name = requestId;
+    iframe.hidden = true;
+    form.hidden = true;
+    form.method = "POST";
+    form.action = CONFIG.appsScriptUrl;
+    form.target = requestId;
+
+    const entries = Array.from(formData.entries());
+    entries.push(["transport", "iframe"]);
+    entries.push(["requestId", requestId]);
+    entries.push(["origin", window.location.origin || "*"]);
+
+    entries.forEach(([key, value]) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = key;
+      input.value = String(value ?? "");
+      form.appendChild(input);
+    });
+
+    window.addEventListener("message", onMessage);
+    document.body.appendChild(iframe);
+    document.body.appendChild(form);
+    form.submit();
   });
-
-  let data;
-  try {
-    data = await response.json();
-  } catch {
-    throw new Error("Reponse inattendue du service Apps Script. Verifie l'URL et les permissions.");
-  }
-
-  if (!data?.ok) {
-    throw new Error(data?.message || "Echec Apps Script inconnu.");
-  }
-
-  return data;
 }
 
 async function publishBook(event) {
@@ -1149,7 +1174,7 @@ async function publishBook(event) {
       coverExtension = (coverFile.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
     }
 
-    dom.publishProgress.textContent = "Envoi au service de publication...";
+    dom.publishProgress.textContent = "Publication du livre en cours...";
     const formData = new FormData();
     formData.append("action", "publishBook");
     formData.append("email", state.email);
@@ -1170,26 +1195,17 @@ async function publishBook(event) {
     formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
     formData.append("assetsBasePath", CONFIG.githubAssetsBasePath || "assets/books");
 
-    dom.publishProgress.textContent = "Envoi vers GitHub via Apps Script. Cela peut prendre 30 à 60 secondes selon la taille du PDF...";
-    const result = await postAdminAction(formData);
+    const response = await postAdminAction(formData);
+    if (!response?.ok) throw new Error(response?.details || response?.message || "Impossible de publier le livre.");
 
-    // Mettre à jour state.books directement depuis la réponse — pas besoin de polling
-    if (result.book) {
-      const idx = state.books.findIndex((b) => b.bookId === result.book.bookId);
-      const merged = { ...( idx !== -1 ? state.books[idx] : {}), ...result.book };
-      if (idx !== -1) {
-        state.books[idx] = merged;
-      } else {
-        state.books.push(merged);
-      }
-      saveBooksCache(state.books);
-      renderBookList();
-      renderAdminBooks();
-    }
-
-    setPublishStatus("Livre publié", true);
-    dom.publishProgress.textContent = "Le livre est maintenant disponible dans le dépôt GitHub.";
+    if (response.book) mergeBookInState(response.book);
+    renderBookList();
+    renderAdminBooks();
     dom.publishForm.reset();
+    setPublishStatus("Livre publié", true);
+    dom.publishProgress.textContent = "Le livre a été publié et la bibliothèque a été mise à jour.";
+    showToast("Livre publié");
+    refreshBooks({ useCache: true, silentError: true }).catch(() => {});
   } catch (error) {
     console.error(error);
     setPublishStatus("Échec de publication");
@@ -1242,8 +1258,15 @@ async function deleteBook(bookId) {
   if (!state.adminUnlocked) return;
   const book = getBookById(bookId);
   if (!book) return;
-  const confirmed = window.confirm(`Supprimer définitivement « ${book.title} » de la bibliothèque et du dépôt GitHub ?`);
+  const confirmed = window.confirm(`Supprimer définitivement « ${book.title} » de la bibliothèque ?`);
   if (!confirmed) return;
+
+  const previousBooks = [...state.books];
+  state.books = state.books.filter((item) => item.bookId !== bookId);
+  cacheBooks(state.books, state.adminUnlocked);
+  renderBookList();
+  renderAdminBooks();
+
   try {
     const response = await jsonp("deleteBook", {
       email: state.email,
@@ -1256,10 +1279,14 @@ async function deleteBook(bookId) {
       state.currentBook = null;
       switchScreen("library");
     }
-    await refreshBooks();
-    showToast("Livre supprimé");
+    showToast(response.message || "Livre supprimé");
+    refreshBooks({ useCache: true, silentError: true }).catch(() => {});
   } catch (error) {
     console.error(error);
+    state.books = previousBooks;
+    cacheBooks(state.books, state.adminUnlocked);
+    renderBookList();
+    renderAdminBooks();
     showToast("Impossible de supprimer le livre");
   }
 }
@@ -1272,55 +1299,44 @@ async function unlockAdmin() {
   }
   try {
     const response = await jsonp("listBooks", { email: state.email, adminCode: code });
-    if (!response?.ok) throw new Error(response?.message || "Code invalide.");
+    if (!response?.ok || response.adminAuthorized !== true) throw new Error(response?.message || "Code invalide.");
     state.adminUnlocked = true;
     state.adminCode = code;
     state.books = response.books || [];
-    saveBooksCache(state.books);
+    dom.adminCodeInput.value = code;
     dom.publishForm.hidden = false;
-    setPublishStatus("Module administrateur déverrouillé", true);
+    cacheBooks(state.books, true);
     persistSession();
     renderBookList();
     renderAdminBooks();
+    setPublishStatus("Module administrateur déverrouillé", true);
+    showToast("Mode administrateur déverrouillé");
   } catch (error) {
     console.error(error);
+    state.adminUnlocked = false;
+    state.adminCode = "";
+    dom.publishForm.hidden = true;
+    persistSession();
     showToast("Code administrateur invalide");
   }
 }
 
-async function refreshBooks(options = {}) {
-  const { background = false } = options;
-  const cachedBooks = readBooksCache();
-  if (cachedBooks.length && !state.books.length) {
-    state.books = cachedBooks;
+async function refreshBooks({ useCache = true, silentError = false } = {}) {
+  const cached = useCache ? readCachedBooks(state.adminUnlocked) : [];
+  if (cached.length) {
+    state.books = cached;
     renderBookList();
     renderAdminBooks();
   }
-
-  dom.refreshBooksBtn.disabled = true;
-  dom.reloadAdminBooksBtn.disabled = true;
-  if (!background) dom.libraryMeta.textContent = state.isAdminCandidate ? `${state.email} - actualisation en cours...` : `${state.email} - actualisation en cours...`;
-
   try {
     const books = await listBooks();
-    saveBooksCache(books);
     renderBookList();
     renderAdminBooks();
     return books;
   } catch (error) {
-    console.error(error);
-    if (state.books.length) {
-      renderBookList();
-      renderAdminBooks();
-      showToast('Actualisation impossible, ancienne liste conservée');
-      return state.books;
-    }
-    throw error;
-  } finally {
-    dom.refreshBooksBtn.disabled = false;
-    dom.reloadAdminBooksBtn.disabled = false;
-    renderBookList();
-    renderAdminBooks();
+    if (!cached.length && !silentError) throw error;
+    if (!silentError) console.warn("Bibliothèque chargée depuis le cache local", error);
+    return cached;
   }
 }
 
@@ -1363,24 +1379,20 @@ async function openBook(book, options = {}) {
     state.notesMap = notes.length ? normalizeNoteRows(notes) : state.notesMap;
 
     if (jsonDoc?.totalPages) state.totalPages = Number(jsonDoc.totalPages) || state.totalPages;
-    if (!state.totalPages && book.allowPdfMode) {
-      const pdfDoc = await loadPdfDocument(book);
-      state.totalPages = pdfDoc.numPages;
-    }
-
-    if (!jsonDoc && !book.allowPdfMode) {
-      throw new Error("Ce livre n'est pas disponible pour le moment.");
-    }
 
     const desiredMode = options.mode || prefs?.preferredMode || state.prefs.preferredMode || "text";
-    if (!jsonDoc) state.mode = "pdf";
+    if (!jsonDoc) state.mode = book.allowPdfMode ? "pdf" : "text";
     else if (desiredMode === "pdf" && book.allowPdfMode) state.mode = "pdf";
     else state.mode = "text";
 
-    if (state.mode === "pdf") {
-      await loadPdfDocument(book);
-      state.totalPages = state.pdfDoc?.numPages || state.totalPages;
+    if (!state.totalPages || state.mode === "pdf") {
+      if (book.allowPdfMode && book.pdfPath) {
+        await loadPdfDocument(book);
+        state.totalPages = state.pdfDoc?.numPages || state.totalPages;
+      }
     }
+
+    if (!state.totalPages) throw new Error("Le livre ne peut pas être chargé pour le moment.");
 
     const restoredPage = options.page || progress?.currentPage || 1;
     state.currentPage = Math.max(1, Math.min(state.totalPages || 1, Number(restoredPage) || 1));
@@ -1390,10 +1402,10 @@ async function openBook(book, options = {}) {
     setSaveStatus("Prêt");
   } catch (error) {
     console.error(error);
-    setSaveStatus("Impossible de charger le livre");
-    showToast(error?.message || "Impossible de charger le livre");
     state.currentBook = null;
     switchScreen("library");
+    setSaveStatus("Impossible de charger le livre");
+    showToast(error.message || "Impossible de charger le livre");
   } finally {
     setReaderLoading(false);
   }
@@ -1442,12 +1454,15 @@ async function handleLogin(event) {
     if (!response?.ok) throw new Error(response?.message || "Accès refusé.");
     state.email = email;
     state.isAdminCandidate = !!response.isAdminCandidate;
+    state.adminUnlocked = false;
+    state.adminCode = "";
     rememberEmail(email);
     persistSession();
     dom.adminPanel.hidden = !state.isAdminCandidate;
+    dom.publishForm.hidden = true;
     setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
     switchScreen("library");
-    await refreshBooks();
+    await refreshBooks({ useCache: true, silentError: true });
   } catch (error) {
     console.error(error);
     setGateMessage(error.message || "Accès refusé.", "error");
@@ -1478,14 +1493,14 @@ async function restoreSessionIfPossible() {
     if (!response?.ok) throw new Error(response?.message || "Session invalide.");
     state.email = saved.email;
     state.isAdminCandidate = !!response.isAdminCandidate;
-    if (saved.adminUnlocked && saved.adminCode) {
-      state.adminUnlocked = true;
-      state.adminCode = saved.adminCode;
-    }
+    state.adminUnlocked = !!saved.adminUnlocked && !!state.isAdminCandidate;
+    state.adminCode = state.adminUnlocked ? String(saved.adminCode || "") : "";
     dom.adminPanel.hidden = !state.isAdminCandidate;
+    dom.adminCodeInput.value = state.adminCode;
+    dom.publishForm.hidden = !state.adminUnlocked;
     switchScreen("library");
     setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
-    await refreshBooks({ background: true });
+    await refreshBooks({ useCache: true, silentError: true });
     if (saved.currentBookId) {
       const book = getBookById(saved.currentBookId);
       if (book) {
@@ -1509,11 +1524,9 @@ function setupInstallPrompt() {
   });
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" })
-      .then((registration) => registration.update().catch(() => null))
-      .catch((error) => {
-        console.warn("Service worker non enregistré", error);
-      });
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.warn("Service worker non enregistré", error);
+    });
   }
 }
 
@@ -1632,7 +1645,10 @@ function attachEvents() {
   });
   dom.unlockAdminBtn.addEventListener("click", unlockAdmin);
   dom.adminCodeInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") { event.preventDefault(); unlockAdmin(); }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      unlockAdmin();
+    }
   });
   dom.publishForm.addEventListener("submit", publishBook);
   dom.reloadAdminBooksBtn.addEventListener("click", refreshBooks);
