@@ -3,7 +3,7 @@ window.READER_CONFIG = {
   documentId: "roman-2026",
   documentName: "Roman",
   pdfUrl: "./assets/roman.pdf",
-  appsScriptUrl: "PASTE_WEB_APP_URL_HERE",
+  appsScriptUrl: "https://script.google.com/macros/s/AKfycbzGi-A3B9SEu4-kq-K4bZmwmD5Q0x4W6moYQNxBS0sX255J89lgqgRCb90nogU9M2oV2g/exec",
   allowedDomains: ["educ.cscapitale.qc.ca", "cscapitale.qc.ca"],
   pdfJsVersion: "5.6.205",
   saveDebounceMs: 2200,
