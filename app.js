@@ -4,22 +4,36 @@ const CONFIG = window.READER_CONFIG || {};
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${CONFIG.pdfJsVersion || "5.6.205"}/build/pdf.worker.min.mjs`;
 
 const FONT_CLASSES = ["font-small", "font-medium", "font-large", "font-xlarge"];
+const DEFAULT_PREFS = {
+  fontIndex: 1,
+  theme: "paper",
+  preferredMode: CONFIG.defaultReaderMode || "text",
+  showTopProgress: false,
+  progressDisplayMode: "percent"
+};
+
+const STORAGE_KEYS = {
+  rememberedEmail: `${CONFIG.appName || "reader"}:remembered-email`,
+  rememberedFlag: `${CONFIG.appName || "reader"}:remember-flag`,
+  session: `${CONFIG.appName || "reader"}:session`,
+  persistentSession: `${CONFIG.appName || "reader"}:persistent-session`
+};
 
 const dom = {
   gate: document.getElementById("gate"),
+  library: document.getElementById("library"),
+  reader: document.getElementById("reader"),
   loginForm: document.getElementById("loginForm"),
   emailInput: document.getElementById("emailInput"),
+  rememberMeInput: document.getElementById("rememberMeInput"),
   loginBtn: document.getElementById("loginBtn"),
   gateMessage: document.getElementById("gateMessage"),
-  gateBusy: document.getElementById("gateBusy"),
-  gateBusyText: document.getElementById("gateBusyText"),
-
-  library: document.getElementById("library"),
+  gateLoading: document.getElementById("gateLoading"),
+  gateLoadingText: document.getElementById("gateLoadingText"),
   libraryMeta: document.getElementById("libraryMeta"),
   bookList: document.getElementById("bookList"),
   refreshBooksBtn: document.getElementById("refreshBooksBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
-
   adminPanel: document.getElementById("adminPanel"),
   adminCodeInput: document.getElementById("adminCodeInput"),
   unlockAdminBtn: document.getElementById("unlockAdminBtn"),
@@ -29,14 +43,13 @@ const dom = {
   bookAuthorInput: document.getElementById("bookAuthorInput"),
   bookPdfInput: document.getElementById("bookPdfInput"),
   bookCoverInput: document.getElementById("bookCoverInput"),
+  allowPdfModeInput: document.getElementById("allowPdfModeInput"),
   publishNowInput: document.getElementById("publishNowInput"),
   publishBtn: document.getElementById("publishBtn"),
   publishStatus: document.getElementById("publishStatus"),
   publishProgress: document.getElementById("publishProgress"),
-  reloadAdminBooksBtn: document.getElementById("reloadAdminBooksBtn"),
   adminBooksList: document.getElementById("adminBooksList"),
-
-  reader: document.getElementById("reader"),
+  reloadAdminBooksBtn: document.getElementById("reloadAdminBooksBtn"),
   backToLibraryBtn: document.getElementById("backToLibraryBtn"),
   menuToggle: document.getElementById("menuToggle"),
   menuBackdrop: document.getElementById("menuBackdrop"),
@@ -52,57 +65,75 @@ const dom = {
   goBtn: document.getElementById("goBtn"),
   modeToggleBtn: document.getElementById("modeToggleBtn"),
   fitBtn: document.getElementById("fitBtn"),
-  fontMinusBtn: document.getElementById("fontMinusBtn"),
-  fontPlusBtn: document.getElementById("fontPlusBtn"),
+  textSizeBtn: document.getElementById("textSizeBtn"),
   bookmarkBtn: document.getElementById("bookmarkBtn"),
+  bookmarkList: document.getElementById("bookmarkList"),
   saveBtn: document.getElementById("saveBtn"),
   themeBtn: document.getElementById("themeBtn"),
-  bookmarkList: document.getElementById("bookmarkList"),
+  saveStatus: document.getElementById("saveStatus"),
   noteInput: document.getElementById("pageNoteInput"),
   saveNoteBtn: document.getElementById("saveNoteBtn"),
-  newNoteBtn: document.getElementById("newNoteBtn"),
-  notesList: document.getElementById("notesList"),
   noteStatus: document.getElementById("noteStatus"),
-  saveStatus: document.getElementById("saveStatus"),
+  showTopProgressInput: document.getElementById("showTopProgressInput"),
+  installAppBtn: document.getElementById("installAppBtn"),
   viewerShell: document.getElementById("viewerShell"),
   readingSurface: document.getElementById("readingSurface"),
   textViewer: document.getElementById("textViewer"),
   pdfViewer: document.getElementById("pdfViewer"),
   pdfCanvas: document.getElementById("pdfCanvas"),
-  toast: document.getElementById("toast"),
+  bottomNav: document.getElementById("bottomNav"),
+  bottomPrevBtn: document.getElementById("bottomPrevBtn"),
+  bottomNextBtn: document.getElementById("bottomNextBtn"),
+  bottomPageBtn: document.getElementById("bottomPageBtn"),
+  topProgressWrap: document.getElementById("topProgressWrap"),
+  topProgressBar: document.getElementById("topProgressBar"),
+  topProgressText: document.getElementById("topProgressText"),
+  loadingOverlay: document.getElementById("loadingOverlay"),
+  loadingOverlayText: document.getElementById("loadingOverlayText"),
+  modalBackdrop: document.getElementById("modalBackdrop"),
+  textSizeModal: document.getElementById("textSizeModal"),
+  textSizeModalTitle: document.getElementById("textSizeModalTitle"),
+  textSizeModalDesc: document.getElementById("textSizeModalDesc"),
+  closeTextSizeModalBtn: document.getElementById("closeTextSizeModalBtn"),
+  decreaseTextBtn: document.getElementById("decreaseTextBtn"),
+  increaseTextBtn: document.getElementById("increaseTextBtn"),
+  installModal: document.getElementById("installModal"),
+  installModalContent: document.getElementById("installModalContent"),
+  closeInstallModalBtn: document.getElementById("closeInstallModalBtn"),
+  toast: document.getElementById("toast")
 };
 
 const state = {
   email: "",
+  rememberMe: CONFIG.rememberEmail !== false,
   isAdminCandidate: false,
   adminUnlocked: false,
   adminCode: "",
   books: [],
   currentBook: null,
+  currentPage: 1,
+  totalPages: 0,
   pdfDoc: null,
   textDoc: null,
-  totalPages: 0,
-  currentPage: 1,
-  mode: CONFIG.defaultReaderMode || "text",
-  theme: "paper",
-  fontIndex: 1,
-  pdfZoomMultiplier: 1,
+  mode: DEFAULT_PREFS.preferredMode,
+  prefs: { ...DEFAULT_PREFS },
+  bookmarks: [],
+  notesMap: {},
+  pdfZoom: 1,
+  fitPdfScale: 1,
   renderToken: 0,
   saveTimer: null,
+  prefsTimer: null,
+  noteTimer: null,
   lastSaveSignature: "",
   toastTimer: null,
-  bookmarks: [],
-  notes: [],
-  editingNoteId: "",
-  fallbackNoticeShownForPage: 0,
+  swipeStart: null,
+  deferredInstallPrompt: null,
+  localPdfPageFallbacks: new Set()
 };
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
-}
-
-function isValidEmail(value) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function slugify(value) {
@@ -120,135 +151,122 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
 
-function showToast(message) {
+function showToast(message, duration = 2200) {
   if (!message) return;
   dom.toast.textContent = message;
   dom.toast.hidden = false;
   if (state.toastTimer) window.clearTimeout(state.toastTimer);
   state.toastTimer = window.setTimeout(() => {
     dom.toast.hidden = true;
-  }, 2300);
+  }, duration);
 }
 
-function setGateMessage(message, kind = "") {
+function setGateMessage(message, type = "") {
   dom.gateMessage.textContent = message || "";
-  dom.gateMessage.className = `gate-message${kind ? ` ${kind}` : ""}`;
+  dom.gateMessage.className = "gate-message" + (type ? ` ${type}` : "");
 }
 
-function setGateBusy(isBusy, message = "") {
-  dom.loginBtn.disabled = !!isBusy;
-  dom.gateBusy.hidden = !isBusy;
-  if (message) dom.gateBusyText.textContent = message;
+function setGateLoading(visible, message = "") {
+  dom.gateLoading.hidden = !visible;
+  if (message) dom.gateLoadingText.textContent = message;
 }
 
-function setSaveStatus(message, kind = "") {
-  dom.saveStatus.textContent = message || "";
-  dom.saveStatus.className = `save-status${kind ? ` status-${kind}` : ""}`;
+function setReaderLoading(visible, message = "") {
+  dom.loadingOverlay.hidden = !visible;
+  if (message) dom.loadingOverlayText.textContent = message;
 }
 
-function setNoteStatus(message, kind = "") {
-  dom.noteStatus.textContent = message || "";
-  dom.noteStatus.className = `save-status${kind ? ` status-${kind}` : ""}`;
+function setSaveStatus(message, positive = false) {
+  dom.saveStatus.textContent = message;
+  dom.saveStatus.style.color = positive ? "var(--success)" : "";
 }
 
-function setPublishStatus(message, success = false) {
-  dom.publishStatus.textContent = message || "";
-  dom.publishStatus.className = success ? "save-status status-success" : "save-status";
+function setPublishStatus(message, positive = false) {
+  dom.publishStatus.textContent = message;
+  dom.publishStatus.style.color = positive ? "var(--success)" : "";
 }
 
-function switchScreen(name) {
-  dom.gate.hidden = name !== "gate";
-  dom.library.hidden = name !== "library";
-  dom.reader.hidden = name !== "reader";
+function switchScreen(screen) {
+  dom.gate.hidden = screen !== "gate";
+  dom.library.hidden = screen !== "library";
+  dom.reader.hidden = screen !== "reader";
 }
 
-function toggleMenu(force) {
-  const shouldOpen = typeof force === "boolean" ? force : dom.controlPanel.hidden;
+function toggleMenu(open) {
+  const shouldOpen = typeof open === "boolean" ? open : dom.controlPanel.hidden;
   dom.controlPanel.hidden = !shouldOpen;
   dom.menuBackdrop.hidden = !shouldOpen;
   dom.menuToggle.setAttribute("aria-expanded", String(shouldOpen));
 }
 
-function blockEasyActions() {
-  const shouldBlock = (event) => {
-    if (dom.reader.hidden) return false;
-    const target = event.target;
-    if (target && target.closest && target.closest("#controlPanel")) return false;
-    if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return false;
-    return true;
-  };
+function openModal(modal) {
+  dom.modalBackdrop.hidden = false;
+  modal.hidden = false;
+}
 
-  const block = (event) => {
-    if (shouldBlock(event)) event.preventDefault();
-  };
+function closeModal(modal) {
+  modal.hidden = true;
+  if (dom.textSizeModal.hidden && dom.installModal.hidden) {
+    dom.modalBackdrop.hidden = true;
+  }
+}
 
-  document.addEventListener("contextmenu", block);
-  document.addEventListener("dragstart", block);
-  document.addEventListener("selectstart", block);
-  document.addEventListener("copy", block);
-  document.addEventListener("cut", block);
-  document.addEventListener("paste", (event) => {
-    if (shouldBlock(event)) event.preventDefault();
+function rebuildReadingSurfaceClasses() {
+  dom.readingSurface.classList.remove("theme-paper", "theme-night", ...FONT_CLASSES);
+  dom.readingSurface.classList.add(`theme-${state.prefs.theme}`, FONT_CLASSES[state.prefs.fontIndex]);
+}
+
+function buildJsonpUrl(action, params = {}) {
+  const url = new URL(CONFIG.appsScriptUrl);
+  const prefix = `cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  url.searchParams.set("action", action);
+  url.searchParams.set("prefix", prefix);
+  url.searchParams.set("_ts", String(Date.now()));
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
   });
+  return { url: url.toString(), prefix };
 }
 
 function jsonp(action, params = {}) {
   return new Promise((resolve, reject) => {
-    const baseUrl = CONFIG.appsScriptUrl;
-    if (!baseUrl) {
-      reject(new Error("URL Apps Script absente."));
-      return;
+    const { url, prefix } = buildJsonpUrl(action, params);
+    const script = document.createElement("script");
+    let settled = false;
+
+    function cleanup() {
+      delete window[prefix];
+      script.remove();
     }
 
-    const callbackName = `jsonp_cb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const url = new URL(baseUrl);
-    url.searchParams.set("action", action);
-    url.searchParams.set("prefix", callbackName);
-    url.searchParams.set("_ts", String(Date.now()));
-
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        url.searchParams.set(key, String(value));
-      }
-    });
-
-    const script = document.createElement("script");
-    const cleanup = () => {
-      delete window[callbackName];
-      script.remove();
-    };
-
-    const timeoutId = window.setTimeout(() => {
-      cleanup();
-      reject(new Error("Délai dépassé lors de la connexion au service."));
-    }, 20000);
-
-    window[callbackName] = (payload) => {
-      window.clearTimeout(timeoutId);
+    window[prefix] = (payload) => {
+      settled = true;
       cleanup();
       resolve(payload);
     };
 
     script.onerror = () => {
-      window.clearTimeout(timeoutId);
+      if (settled) return;
+      settled = true;
       cleanup();
-      reject(new Error("Impossible de joindre le service."));
+      reject(new Error("Erreur réseau Apps Script."));
     };
 
-    script.src = url.toString();
+    script.src = url;
     document.body.appendChild(script);
-  });
-}
 
-async function postAdminAction(formData) {
-  await fetch(CONFIG.appsScriptUrl, {
-    method: "POST",
-    mode: "no-cors",
-    body: formData,
+    window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error("Délai dépassé."));
+    }, 20000);
   });
 }
 
@@ -256,22 +274,261 @@ async function auth(email) {
   return jsonp("auth", { email });
 }
 
-async function refreshBooks() {
-  if (!state.email) return;
+async function listBooks() {
   const response = await jsonp("listBooks", {
     email: state.email,
-    adminCode: state.adminUnlocked ? state.adminCode : "",
+    adminCode: state.adminUnlocked ? state.adminCode : ""
   });
-  if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
-  state.books = Array.isArray(response.books) ? response.books : [];
-  renderBookList();
-  renderAdminBooks();
+  if (!response?.ok) throw new Error(response?.message || "Impossible de charger la bibliothèque.");
+  state.books = response.books || [];
+  return state.books;
 }
 
 async function fetchProgress(bookId) {
   const response = await jsonp("getProgress", { email: state.email, bookId });
-  if (!response?.ok) return null;
-  return response.progress || null;
+  return response?.ok ? response.progress || null : null;
+}
+
+async function fetchPreferences(bookId) {
+  const response = await jsonp("getPreferences", { email: state.email, bookId });
+  return response?.ok ? response.preferences || null : null;
+}
+
+async function fetchBookmarks(bookId) {
+  const response = await jsonp("listBookmarks", { email: state.email, bookId });
+  return response?.ok ? response.bookmarks || [] : [];
+}
+
+async function fetchNotes(bookId) {
+  const response = await jsonp("listNotes", { email: state.email, bookId });
+  return response?.ok ? response.notes || [] : [];
+}
+
+function localKey(prefix, bookId = state.currentBook?.bookId || "") {
+  return `${CONFIG.appName || "reader"}:${prefix}:${state.email}:${bookId}`;
+}
+
+function saveLocalJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function loadLocalJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function persistSession() {
+  const payload = {
+    email: state.email,
+    rememberMe: !!state.rememberMe,
+    currentBookId: state.currentBook?.bookId || "",
+    currentPage: state.currentPage,
+    mode: state.mode
+  };
+  try {
+    sessionStorage.setItem(STORAGE_KEYS.session, JSON.stringify(payload));
+    if (state.rememberMe) localStorage.setItem(STORAGE_KEYS.persistentSession, JSON.stringify(payload));
+    else localStorage.removeItem(STORAGE_KEYS.persistentSession);
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function clearSessionStorage() {
+  try {
+    sessionStorage.removeItem(STORAGE_KEYS.session);
+    localStorage.removeItem(STORAGE_KEYS.persistentSession);
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function readSavedSession() {
+  try {
+    const sessionValue = sessionStorage.getItem(STORAGE_KEYS.session);
+    if (sessionValue) return JSON.parse(sessionValue);
+    const persistentValue = localStorage.getItem(STORAGE_KEYS.persistentSession);
+    return persistentValue ? JSON.parse(persistentValue) : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberEmail(email) {
+  try {
+    if (state.rememberMe) {
+      localStorage.setItem(STORAGE_KEYS.rememberedEmail, email);
+      localStorage.setItem(STORAGE_KEYS.rememberedFlag, "true");
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.rememberedEmail);
+      localStorage.setItem(STORAGE_KEYS.rememberedFlag, "false");
+    }
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function loadRememberedEmail() {
+  try {
+    return localStorage.getItem(STORAGE_KEYS.rememberedEmail) || "";
+  } catch {
+    return "";
+  }
+}
+
+function loadRememberedFlag() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.rememberedFlag);
+    return raw === null ? state.rememberMe : raw === "true";
+  } catch {
+    return state.rememberMe;
+  }
+}
+
+function clearRememberedIdentity() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.rememberedEmail);
+  } catch (error) {
+    console.warn(error);
+  }
+}
+
+function getBookById(bookId) {
+  return state.books.find((book) => book.bookId === bookId) || null;
+}
+
+function computePublicAssetUrl(path) {
+  if (!path) return "";
+  return `./${String(path).replace(/^\.\//, "").replace(/^\//, "")}`;
+}
+
+function bookCoverMarkup(book, className = "book-cover") {
+  if (book.coverPath) {
+    return `<div class="${className}"><img src="${escapeHtml(computePublicAssetUrl(book.coverPath))}" alt="Couverture de ${escapeHtml(book.title)}"></div>`;
+  }
+  return `<div class="cover-placeholder" aria-hidden="true">📘</div>`;
+}
+
+function renderBookList() {
+  dom.libraryMeta.textContent = state.isAdminCandidate ? `${state.email} - mode administrateur disponible` : state.email;
+  const books = state.books.filter((book) => book.published || state.adminUnlocked);
+  if (!books.length) {
+    dom.bookList.innerHTML = `<div class="empty-state">Aucun livre publié pour le moment.</div>`;
+    return;
+  }
+
+  dom.bookList.innerHTML = books.map((book) => `
+    <article class="book-card">
+      ${bookCoverMarkup(book, "book-cover")}
+      <div>
+        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Non publié"}</div>
+        <h3>${escapeHtml(book.title)}</h3>
+        <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
+        <p>${book.totalPages ? `${book.totalPages} pages` : "Nombre de pages inconnu"}</p>
+        <p>${book.allowPdfMode ? '<span class="badge pdf-badge">Mode PDF autorisé</span>' : '<span class="badge">Lecture texte</span>'}</p>
+        <div class="book-actions">
+          <button class="nav-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+        </div>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderAdminBooks() {
+  if (!state.adminUnlocked) {
+    dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour gérer les livres.</div>`;
+    return;
+  }
+  if (!state.books.length) {
+    dom.adminBooksList.innerHTML = `<div class="empty-state">Aucun livre enregistré.</div>`;
+    return;
+  }
+
+  dom.adminBooksList.innerHTML = state.books.map((book) => `
+    <article class="admin-book-card">
+      ${bookCoverMarkup(book, "admin-book-cover")}
+      <div>
+        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Masqué"}</div>
+        <h4>${escapeHtml(book.title)}</h4>
+        <p><strong>ID:</strong> ${escapeHtml(book.bookId)}</p>
+        <p><strong>JSON:</strong> ${book.jsonPath ? "Oui" : "Non"}</p>
+        <p><strong>PDF élèves:</strong> ${book.allowPdfMode ? "Autorisé" : "Désactivé"}</p>
+        <p><strong>Dernière publication:</strong> ${escapeHtml(book.lastPublishedAt || "N/A")}</p>
+        <div class="admin-book-actions">
+          <button class="secondary-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+          <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Retirer" : "Publier"}</button>
+          <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.allowPdfMode ? "Désactiver PDF" : "Activer PDF"}</button>
+          <button class="ghost-btn" type="button" data-delete-book="${escapeHtml(book.bookId)}">Supprimer</button>
+        </div>
+      </div>
+    </article>
+  `).join("");
+}
+
+function normalizeNoteRows(rows) {
+  const notesMap = {};
+  rows.forEach((row) => {
+    if (!row) return;
+    notesMap[String(row.page)] = row.noteText || "";
+  });
+  return notesMap;
+}
+
+function cacheCurrentBookData() {
+  if (!state.currentBook) return;
+  saveLocalJson(localKey("prefs"), state.prefs);
+  saveLocalJson(localKey("bookmarks"), state.bookmarks);
+  saveLocalJson(localKey("notes"), state.notesMap);
+}
+
+function readCachedPrefs(bookId) {
+  return loadLocalJson(localKey("prefs", bookId), null);
+}
+
+function readCachedBookmarks(bookId) {
+  return loadLocalJson(localKey("bookmarks", bookId), []);
+}
+
+function readCachedNotes(bookId) {
+  return loadLocalJson(localKey("notes", bookId), {});
+}
+
+function updateUiLabels() {
+  const totalPages = state.totalPages || 0;
+  dom.pageLabel.textContent = `Page ${state.currentPage} / ${totalPages}`;
+  dom.pageInput.value = String(state.currentPage || 1);
+  const progressPercent = totalPages ? Math.round((state.currentPage / totalPages) * 1000) / 10 : 0;
+  const progressText = state.prefs.progressDisplayMode === "pages"
+    ? `${state.currentPage} / ${totalPages} pages`
+    : `${progressPercent} %`;
+  dom.progressText.textContent = progressText;
+  dom.topProgressText.textContent = progressText;
+  dom.progressBar.style.width = `${Math.max(0, Math.min(100, progressPercent))}%`;
+  dom.topProgressBar.style.width = `${Math.max(0, Math.min(100, progressPercent))}%`;
+  dom.bottomPageBtn.textContent = `${state.currentPage} / ${totalPages}`;
+  dom.docLabel.textContent = state.currentBook?.title || "Document";
+  dom.prevBtn.disabled = state.currentPage <= 1;
+  dom.nextBtn.disabled = state.currentPage >= totalPages;
+  dom.bottomPrevBtn.disabled = state.currentPage <= 1;
+  dom.bottomNextBtn.disabled = state.currentPage >= totalPages;
+  dom.bottomNav.hidden = !state.currentBook;
+  dom.topProgressWrap.hidden = !state.prefs.showTopProgress;
+  dom.showTopProgressInput.checked = !!state.prefs.showTopProgress;
+  const allowPdf = !!state.currentBook?.allowPdfMode;
+  const hasText = !!state.textDoc;
+  dom.modeToggleBtn.hidden = !allowPdf || !hasText;
+  dom.modeToggleBtn.textContent = state.mode === "text" ? "Afficher le PDF" : "Afficher le texte";
+  dom.themeBtn.textContent = state.prefs.theme === "paper" ? "Mode nuit" : "Mode clair";
+  dom.noteInput.value = state.notesMap[String(state.currentPage)] || "";
+  renderBookmarks();
 }
 
 function buildProgressPayload() {
@@ -282,7 +539,7 @@ function buildProgressPayload() {
     title: state.currentBook?.title,
     currentPage: state.currentPage,
     totalPages: state.totalPages,
-    progressPercent,
+    progressPercent
   };
 }
 
@@ -297,68 +554,37 @@ async function saveProgress({ immediate = false } = {}) {
     const response = await jsonp("saveProgress", payload);
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
     state.lastSaveSignature = signature;
-    setSaveStatus("Progression enregistrée", "success");
+    setSaveStatus("Progression enregistrée", true);
   } catch (error) {
     console.error(error);
-    setSaveStatus("Sauvegarde impossible", "error");
+    setSaveStatus("Sauvegarde impossible");
     showToast("Sauvegarde impossible");
   }
 }
 
 function scheduleSave() {
   if (state.saveTimer) window.clearTimeout(state.saveTimer);
-  state.saveTimer = window.setTimeout(() => {
-    saveProgress();
-  }, CONFIG.autoSaveDelayMs || 450);
+  state.saveTimer = window.setTimeout(() => saveProgress(), CONFIG.autoSaveDelayMs || 450);
 }
 
-async function loadBookmarks() {
-  if (!state.currentBook) return;
-  const response = await jsonp("listBookmarks", {
-    email: state.email,
-    bookId: state.currentBook.bookId,
-  });
-  state.bookmarks = response?.ok && Array.isArray(response.bookmarks) ? response.bookmarks : [];
-  renderBookmarks();
-}
-
-async function addBookmark() {
-  if (!state.currentBook) return;
-  const existing = state.bookmarks.some((bookmark) => Number(bookmark.page) === state.currentPage);
-  if (existing) {
-    showToast(`Un signet existe déjà à la page ${state.currentPage}`);
-    return;
-  }
-  try {
-    const response = await jsonp("addBookmark", {
-      email: state.email,
-      bookId: state.currentBook.bookId,
-      page: state.currentPage,
-    });
-    if (!response?.ok) throw new Error(response?.message || "Impossible d'ajouter le signet.");
-    await loadBookmarks();
-    showToast(`Signet ajouté à la page ${state.currentPage}`);
-  } catch (error) {
-    console.error(error);
-    showToast("Impossible d'ajouter le signet");
-  }
-}
-
-async function removeBookmark(page) {
-  if (!state.currentBook) return;
-  try {
-    const response = await jsonp("removeBookmark", {
-      email: state.email,
-      bookId: state.currentBook.bookId,
-      page,
-    });
-    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer le signet.");
-    await loadBookmarks();
-    showToast("Signet supprimé");
-  } catch (error) {
-    console.error(error);
-    showToast("Impossible de supprimer le signet");
-  }
+function schedulePreferencesSave() {
+  if (!state.currentBook || !state.email) return;
+  if (state.prefsTimer) window.clearTimeout(state.prefsTimer);
+  state.prefsTimer = window.setTimeout(async () => {
+    try {
+      await jsonp("savePreferences", {
+        email: state.email,
+        bookId: state.currentBook.bookId,
+        fontIndex: state.prefs.fontIndex,
+        theme: state.prefs.theme,
+        preferredMode: state.mode,
+        showTopProgress: state.prefs.showTopProgress ? "true" : "false",
+        progressDisplayMode: state.prefs.progressDisplayMode
+      });
+    } catch (error) {
+      console.warn("Préférences non synchronisées", error);
+    }
+  }, 350);
 }
 
 function renderBookmarks() {
@@ -366,194 +592,140 @@ function renderBookmarks() {
     dom.bookmarkList.innerHTML = `<div class="empty-state">Aucun signet pour ce livre.</div>`;
     return;
   }
-
-  const sorted = [...state.bookmarks].sort((a, b) => Number(a.page) - Number(b.page));
-  dom.bookmarkList.innerHTML = sorted.map((bookmark) => `
-    <div class="bookmark-chip">
-      <button type="button" data-bookmark-page="${bookmark.page}">Page ${bookmark.page}</button>
-      <button type="button" data-remove-bookmark="${bookmark.page}">Retirer</button>
-    </div>
-  `).join("");
+  dom.bookmarkList.innerHTML = [...state.bookmarks]
+    .sort((a, b) => a.page - b.page)
+    .map((bookmark) => `
+      <div class="bookmark-chip">
+        <button type="button" data-bookmark-page="${bookmark.page}">Page ${bookmark.page}</button>
+        <button type="button" data-remove-bookmark="${bookmark.page}">Retirer</button>
+      </div>
+    `)
+    .join("");
 }
 
-async function loadNotes() {
-  if (!state.currentBook) return;
-  const response = await jsonp("listNotes", {
-    email: state.email,
-    bookId: state.currentBook.bookId,
+function normalizeLineText(parts) {
+  return parts.join(" ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([«(])\s+/g, "$1")
+    .replace(/\s+([»)])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function extractPageText(items) {
+  if (!items?.length) return "";
+  const sorted = [...items].sort((a, b) => {
+    const ay = a.transform?.[5] || 0;
+    const by = b.transform?.[5] || 0;
+    if (Math.abs(by - ay) > 2) return by - ay;
+    const ax = a.transform?.[4] || 0;
+    const bx = b.transform?.[4] || 0;
+    return ax - bx;
   });
-  state.notes = response?.ok && Array.isArray(response.notes) ? response.notes : [];
-  renderNotes();
-}
 
-function getCurrentPageNotes() {
-  return state.notes.filter((note) => Number(note.page) === state.currentPage);
-}
+  const lines = [];
+  let currentLine = [];
+  let currentY = null;
+  let previousY = null;
 
-function renderNotes() {
-  const pageNotes = getCurrentPageNotes();
-  if (!pageNotes.length) {
-    dom.notesList.innerHTML = `<div class="empty-state">Aucune note pour cette page.</div>`;
-    return;
+  for (const item of sorted) {
+    const text = String(item.str || "").trim();
+    if (!text) continue;
+    const y = item.transform?.[5] || 0;
+    if (currentY === null || Math.abs(y - currentY) <= 3.5) {
+      currentLine.push(text);
+      currentY = currentY === null ? y : currentY;
+    } else {
+      const normalized = normalizeLineText(currentLine);
+      lines.push({ text: normalized, gap: previousY === null ? 0 : Math.abs(previousY - currentY) });
+      previousY = currentY;
+      currentLine = [text];
+      currentY = y;
+    }
+  }
+  if (currentLine.length) {
+    const normalized = normalizeLineText(currentLine);
+    lines.push({ text: normalized, gap: previousY === null ? 0 : Math.abs(previousY - currentY) });
   }
 
-  dom.notesList.innerHTML = pageNotes
-    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
-    .map((note) => `
-      <div class="note-card">
-        <div>
-          <div class="note-card-meta">${escapeHtml(formatDateTime(note.updatedAt || note.createdAt))}</div>
-          <div class="note-card-text">${escapeHtml(note.noteText)}</div>
-        </div>
-        <div class="note-card-actions">
-          <button type="button" data-edit-note="${escapeHtml(note.noteId)}">Modifier</button>
-          <button type="button" data-delete-note="${escapeHtml(note.noteId)}">Supprimer</button>
-        </div>
-      </div>
-    `).join("");
-}
+  const blocks = [];
+  let buffer = [];
+  let gapRef = 0;
 
-function formatDateTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("fr-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+  for (const lineInfo of lines) {
+    const line = lineInfo.text;
+    const isDialogue = /^[\-—]/.test(line);
+    const isHeading = /^[A-ZÉÈÀÂÊÎÔÛÇ0-9\s]{5,}$/.test(line) && line.length < 70;
+    const largeGap = lineInfo.gap > 12 && gapRef !== 0;
 
-function resetNoteEditor() {
-  state.editingNoteId = "";
-  dom.noteInput.value = "";
-  setNoteStatus("");
-}
+    if (isDialogue || isHeading || largeGap) {
+      if (buffer.length) {
+        blocks.push({ type: "paragraph", text: buffer.join(" ") });
+        buffer = [];
+      }
+      blocks.push({ type: isHeading ? "centered" : isDialogue ? "dialogue" : "paragraph", text: line });
+      gapRef = lineInfo.gap;
+      continue;
+    }
 
-function startEditingNote(noteId) {
-  const note = state.notes.find((item) => item.noteId === noteId);
-  if (!note) return;
-  state.editingNoteId = note.noteId;
-  dom.noteInput.value = note.noteText || "";
-  dom.noteInput.focus();
-  setNoteStatus("Modification en cours");
-}
-
-async function saveCurrentNote() {
-  if (!state.currentBook) return;
-  const noteText = dom.noteInput.value.trim();
-  if (!noteText) {
-    setNoteStatus("La note est vide", "error");
-    return;
+    buffer.push(line);
+    gapRef = lineInfo.gap;
   }
-  if (noteText.length > 1200) {
-    setNoteStatus("La note est trop longue", "error");
-    return;
-  }
+  if (buffer.length) blocks.push({ type: "paragraph", text: buffer.join(" ") });
 
-  try {
-    const response = await jsonp("saveNote", {
-      email: state.email,
-      bookId: state.currentBook.bookId,
-      page: state.currentPage,
-      noteId: state.editingNoteId,
-      noteText,
-    });
-    if (!response?.ok) throw new Error(response?.message || "Impossible d'enregistrer la note.");
-    await loadNotes();
-    resetNoteEditor();
-    setNoteStatus("Note enregistrée", "success");
-  } catch (error) {
-    console.error(error);
-    setNoteStatus("Sauvegarde impossible", "error");
-  }
+  return blocks
+    .map((block) => ({
+      type: block.type,
+      text: String(block.text || "")
+        .replace(/\s+([,.;:!?])/g, "$1")
+        .replace(/\s{2,}/g, " ")
+        .trim()
+    }))
+    .filter((block) => block.text)
+    .map((block) => ({
+      type: block.type,
+      text: block.type === "paragraph" ? block.text : block.text.replace(/^[-—]\s*/, (m) => m.trim() + " ")
+    }));
 }
 
-async function deleteNote(noteId) {
-  if (!state.currentBook) return;
-  try {
-    const response = await jsonp("deleteNote", {
-      email: state.email,
-      bookId: state.currentBook.bookId,
-      noteId,
-    });
-    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer la note.");
-    if (state.editingNoteId === noteId) resetNoteEditor();
-    await loadNotes();
-    setNoteStatus("Note supprimée", "success");
-  } catch (error) {
-    console.error(error);
-    setNoteStatus("Suppression impossible", "error");
-  }
+function blocksToHtml(blocks) {
+  return blocks.map((block) => {
+    const cls = block.type === "dialogue" ? "dialogue" : block.type === "centered" ? "centered" : "";
+    return `<p${cls ? ` class="${cls}"` : ""}>${escapeHtml(block.text)}</p>`;
+  }).join("");
 }
 
-function computePublicAssetUrl(path) {
-  if (!path) return "";
-  return `./${String(path).replace(/^\.\//, "").replace(/^\//, "")}`;
+function normalizeJsonPage(page) {
+  if (!page) return { html: "", hasUsableText: false };
+  if (page.html) return { html: String(page.html), hasUsableText: !!String(page.html).trim() };
+  const blocks = Array.isArray(page.blocks) ? page.blocks : extractPageTextFromRawString(page.text || "");
+  const html = blocksToHtml(blocks);
+  return { html, hasUsableText: blocks.length > 0 };
 }
 
-function coverHtml(book, className = "book-cover") {
-  if (book.coverPath) {
-    return `<div class="${className}"><img src="${escapeHtml(computePublicAssetUrl(book.coverPath))}" alt="Couverture de ${escapeHtml(book.title)}" loading="lazy"></div>`;
+function extractPageTextFromRawString(rawText) {
+  const lines = String(rawText || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const blocks = [];
+  let paragraphBuffer = [];
+  for (const line of lines) {
+    const isDialogue = /^[\-—]/.test(line);
+    const isHeading = /^[A-ZÉÈÀÂÊÎÔÛÇ0-9\s]{5,}$/.test(line) && line.length < 70;
+    if (isDialogue || isHeading) {
+      if (paragraphBuffer.length) {
+        blocks.push({ type: "paragraph", text: paragraphBuffer.join(" ") });
+        paragraphBuffer = [];
+      }
+      blocks.push({ type: isHeading ? "centered" : "dialogue", text: line });
+    } else {
+      paragraphBuffer.push(line);
+    }
   }
-  return `<div class="cover-placeholder">${escapeHtml((book.title || "?").trim().slice(0, 1).toUpperCase() || "?")}</div>`;
-}
-
-function renderBookList() {
-  dom.libraryMeta.textContent = state.isAdminCandidate ? `${state.email} - mode administrateur disponible` : state.email;
-  const books = state.books.filter((book) => book.published || state.adminUnlocked);
-  if (!books.length) {
-    dom.bookList.innerHTML = `<div class="empty-state">Aucun livre publié pour le moment.</div>`;
-    return;
-  }
-
-  dom.bookList.innerHTML = books.map((book) => `
-    <article class="book-card">
-      ${coverHtml(book)}
-      <div>
-        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Non publié"}</div>
-        <h3>${escapeHtml(book.title)}</h3>
-        <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
-        <p class="book-meta">${book.totalPages ? `${book.totalPages} pages` : "Nombre de pages inconnu"}</p>
-        <div class="book-actions">
-          <button class="nav-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
-        </div>
-      </div>
-    </article>
-  `).join("");
-}
-
-function renderAdminBooks() {
-  if (!state.isAdminCandidate) return;
-  if (!state.adminUnlocked) {
-    dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour voir la gestion complète.</div>`;
-    return;
-  }
-
-  if (!state.books.length) {
-    dom.adminBooksList.innerHTML = `<div class="empty-state">Aucun livre enregistré.</div>`;
-    return;
-  }
-
-  dom.adminBooksList.innerHTML = state.books.map((book) => `
-    <article class="admin-book-card">
-      ${coverHtml(book, "admin-book-cover")}
-      <div>
-        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Masqué"}</div>
-        <h4>${escapeHtml(book.title)}</h4>
-        <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
-        <p>${book.totalPages ? `${book.totalPages} pages` : "Nombre de pages inconnu"}</p>
-        <p>PDF: ${escapeHtml(book.pdfPath || "")}</p>
-        <p>JSON: ${escapeHtml(book.jsonPath || "")}</p>
-        <div class="admin-book-actions">
-          <button class="secondary-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
-          <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
-        </div>
-      </div>
-    </article>
-  `).join("");
+  if (paragraphBuffer.length) blocks.push({ type: "paragraph", text: paragraphBuffer.join(" ") });
+  return blocks;
 }
 
 async function loadTextJson(book) {
@@ -571,133 +743,27 @@ async function loadPdfDocument(book) {
   return state.pdfDoc;
 }
 
-function rebuildReadingSurfaceClasses() {
-  dom.readingSurface.classList.remove("mode-text", "mode-pdf", "theme-paper", "theme-night", ...FONT_CLASSES);
-  dom.readingSurface.classList.add(state.mode === "text" ? "mode-text" : "mode-pdf");
-  dom.readingSurface.classList.add(state.theme === "night" ? "theme-night" : "theme-paper");
-  dom.readingSurface.classList.add(FONT_CLASSES[state.fontIndex] || FONT_CLASSES[1]);
-}
-
-function updateUiLabels() {
-  const totalPages = state.totalPages || 0;
-  dom.pageLabel.textContent = `Page ${state.currentPage} / ${totalPages}`;
-  dom.pageInput.value = String(state.currentPage || 1);
-  const progressPercent = totalPages ? Math.round((state.currentPage / totalPages) * 1000) / 10 : 0;
-  dom.progressText.textContent = `${progressPercent} %`;
-  dom.progressBar.style.width = `${Math.max(0, Math.min(100, progressPercent))}%`;
-  dom.modeToggleBtn.textContent = state.mode === "text" ? "Mode PDF" : "Mode texte";
-  dom.themeBtn.textContent = state.theme === "paper" ? "Mode nuit" : "Mode clair";
-  dom.docLabel.textContent = state.currentBook?.title || "Document";
-  dom.prevBtn.disabled = state.currentPage <= 1;
-  dom.nextBtn.disabled = state.currentPage >= totalPages;
-  dom.fontMinusBtn.textContent = state.mode === "text" ? "Police -" : "Zoom -";
-  dom.fontPlusBtn.textContent = state.mode === "text" ? "Police +" : "Zoom +";
-  renderBookmarks();
-  renderNotes();
-}
-
-function normalizeLineText(parts) {
-  return parts.join(" ")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/([«(])\s+/g, "$1")
-    .replace(/\s+([»)])/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function buildStructuredPageFromPlainText(rawText = "") {
-  const source = String(rawText || "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  if (!source || source.replace(/\s+/g, "").length < 18) {
-    return { html: "", text: "", charCount: 0, renderMode: "pdf" };
-  }
-
-  const lines = source.split(/\n/).map((line) => line.trim()).filter(Boolean);
-  const blocks = [];
-  let buffer = [];
-
-  const pushBuffer = () => {
-    if (!buffer.length) return;
-    blocks.push({ type: "paragraph", text: buffer.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
-    buffer = [];
-  };
-
-  for (const line of lines) {
-    const isDialogue = /^[-–—]\s*/.test(line);
-    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ'’\s]{4,}$/.test(line) && line.length <= 60;
-    if (isDialogue) {
-      pushBuffer();
-      blocks.push({ type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") });
-      continue;
-    }
-    if (isCentered) {
-      pushBuffer();
-      blocks.push({ type: "centered", text: line });
-      continue;
-    }
-    if (buffer.length) {
-      const previous = buffer[buffer.length - 1];
-      const previousEndsSentence = /[.!?…:]$/.test(previous);
-      const startsParagraph = /^[«"A-ZÉÈÀÂÊÎÔÛÇ]/.test(line) && previousEndsSentence && line.length > 30;
-      if (startsParagraph) {
-        pushBuffer();
-      }
-    }
-    buffer.push(line);
-  }
-  pushBuffer();
-
-  if (!blocks.length) {
-    return { html: "", text: source, charCount: source.length, renderMode: "pdf" };
-  }
-
-  const html = blocks.map((block) => {
-    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
-    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
-    return `<p>${escapeHtml(block.text)}</p>`;
-  }).join("");
-
-  return {
-    html,
-    text: blocks.map((block) => block.text).join("\n\n"),
-    charCount: source.replace(/\s+/g, "").length,
-    renderMode: "text",
-  };
-}
-
-function getRenderableTextPage(pageNumber) {
-  const page = state.textDoc?.pages?.[pageNumber - 1];
-  if (!page) return null;
-  if (page.renderMode === "pdf") return { renderMode: "pdf" };
-  if (page.html) return { renderMode: "text", html: page.html, text: page.text || "" };
-  return buildStructuredPageFromPlainText(page.text || "");
-}
-
 async function renderTextPage(pageNumber) {
-  const page = getRenderableTextPage(pageNumber);
-  if (!page || page.renderMode === "pdf" || !page.html) {
-    if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
-    dom.textViewer.hidden = true;
-    dom.pdfViewer.hidden = false;
-    await renderPdfPage(pageNumber, { forceFit: true });
-    if (state.fallbackNoticeShownForPage !== pageNumber) {
-      state.fallbackNoticeShownForPage = pageNumber;
-      showToast("Cette page est affichée en mode PDF pour conserver une mise en page propre.");
+  const page = state.textDoc?.pages?.[pageNumber - 1];
+  const normalized = normalizeJsonPage(page);
+  if (!normalized.hasUsableText) {
+    if (state.currentBook?.allowPdfMode) {
+      state.localPdfPageFallbacks.add(pageNumber);
+      return renderPdfPage(pageNumber);
     }
+    dom.textViewer.innerHTML = `
+      <article class="text-page">
+        <h2>Page ${pageNumber}</h2>
+        <div class="text-content"><p class="empty-text">Le texte n'est pas disponible proprement pour cette page.</p></div>
+      </article>
+    `;
     return;
   }
-
-  state.fallbackNoticeShownForPage = 0;
-  dom.textViewer.hidden = false;
-  dom.pdfViewer.hidden = true;
+  state.localPdfPageFallbacks.delete(pageNumber);
   dom.textViewer.innerHTML = `
     <article class="text-page">
       <h2>Page ${pageNumber}</h2>
-      <div class="text-content">${page.html}</div>
+      <div class="text-content">${normalized.html}</div>
     </article>
   `;
 }
@@ -708,133 +774,229 @@ function computeFitScale(page) {
   return shellWidth / viewport.width;
 }
 
-async function renderPdfPage(pageNumber, { forceFit = false } = {}) {
+async function renderPdfPage(pageNumber) {
   if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
   const renderToken = ++state.renderToken;
   const page = await state.pdfDoc.getPage(pageNumber);
-  if (forceFit) state.pdfZoomMultiplier = 1;
-  const scale = computeFitScale(page) * state.pdfZoomMultiplier;
+  state.fitPdfScale = computeFitScale(page);
+  const scale = state.fitPdfScale * state.pdfZoom;
   const viewport = page.getViewport({ scale });
   const outputScale = window.devicePixelRatio || 1;
   const context = dom.pdfCanvas.getContext("2d", { alpha: false });
 
   dom.pdfCanvas.width = Math.floor(viewport.width * outputScale);
   dom.pdfCanvas.height = Math.floor(viewport.height * outputScale);
-  dom.pdfCanvas.style.width = `${Math.round(viewport.width)}px`;
-  dom.pdfCanvas.style.height = `${Math.round(viewport.height)}px`;
+  dom.pdfCanvas.style.width = `${viewport.width}px`;
+  dom.pdfCanvas.style.height = `${viewport.height}px`;
+
+  const renderContext = {
+    canvasContext: context,
+    viewport,
+    transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null
+  };
 
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, dom.pdfCanvas.width, dom.pdfCanvas.height);
 
-  const renderContext = {
-    canvasContext: context,
-    viewport,
-    transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
-  };
-
   await page.render(renderContext).promise;
   if (renderToken !== state.renderToken) return;
-  dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
 }
 
-async function renderCurrentPage({ forceFit = false } = {}) {
+async function renderCurrentPage() {
   if (!state.currentBook) return;
   updateUiLabels();
   rebuildReadingSurfaceClasses();
 
-  if (state.mode === "text") {
+  if (state.mode === "text" && state.textDoc) {
+    dom.textViewer.hidden = false;
+    dom.pdfViewer.hidden = true;
     await renderTextPage(state.currentPage);
+    if (state.localPdfPageFallbacks.has(state.currentPage)) {
+      dom.textViewer.hidden = true;
+      dom.pdfViewer.hidden = false;
+    }
   } else {
     dom.textViewer.hidden = true;
     dom.pdfViewer.hidden = false;
-    await renderPdfPage(state.currentPage, { forceFit });
+    await renderPdfPage(state.currentPage);
   }
 
   dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
+  persistSession();
 }
 
-async function goToPage(pageNumber, { save = true } = {}) {
+async function goToPage(pageNumber, { save = true, animate = "" } = {}) {
   if (!state.totalPages) return;
   const nextPage = Math.max(1, Math.min(state.totalPages, Number(pageNumber) || 1));
+  if (nextPage === state.currentPage && !save) return;
   state.currentPage = nextPage;
+  if (animate) {
+    dom.readingSurface.classList.remove("turn-next", "turn-prev");
+    dom.readingSurface.classList.add(animate === "next" ? "turn-next" : "turn-prev");
+    window.setTimeout(() => dom.readingSurface.classList.remove("turn-next", "turn-prev"), 240);
+  }
   await renderCurrentPage();
   if (save) scheduleSave();
 }
 
-async function openBook(book) {
-  state.currentBook = book;
-  state.currentPage = 1;
-  state.totalPages = Number(book.totalPages) || 0;
-  state.pdfDoc = null;
-  state.textDoc = null;
-  state.lastSaveSignature = "";
-  state.bookmarks = [];
-  state.notes = [];
-  state.editingNoteId = "";
-  state.pdfZoomMultiplier = 1;
-  state.fallbackNoticeShownForPage = 0;
+function toggleProgressDisplayMode() {
+  state.prefs.progressDisplayMode = state.prefs.progressDisplayMode === "percent" ? "pages" : "percent";
+  updateUiLabels();
+  cacheCurrentBookData();
+  schedulePreferencesSave();
+}
 
-  setSaveStatus("Chargement...");
-  switchScreen("reader");
-  toggleMenu(false);
-
-  const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
-    fetchProgress(book.bookId),
-    jsonp("listBookmarks", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
-    jsonp("listNotes", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
-    loadTextJson(book).catch(() => null),
-  ]);
-
-  state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
-  state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
-  state.textDoc = textDoc;
-
-  if (textDoc?.totalPages) state.totalPages = Number(textDoc.totalPages) || state.totalPages;
-  if (!state.totalPages || !textDoc) {
-    const pdfDoc = await loadPdfDocument(book);
-    state.totalPages = pdfDoc.numPages;
+function updateTextSize(direction) {
+  if (state.mode === "pdf") {
+    const delta = direction === "up" ? (CONFIG.pdfZoomStep || 0.12) : -(CONFIG.pdfZoomStep || 0.12);
+    const nextZoom = Math.max(CONFIG.minPdfZoom || 0.7, Math.min(CONFIG.maxPdfZoom || 2.4, Number((state.pdfZoom + delta).toFixed(2))));
+    if (nextZoom === state.pdfZoom) return;
+    state.pdfZoom = nextZoom;
+    renderCurrentPage();
+    return;
   }
-
-  state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : "pdf";
-  const restoredPage = progress?.currentPage ? Number(progress.currentPage) : 1;
-  state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
-  resetNoteEditor();
-  await renderCurrentPage({ forceFit: true });
-  setSaveStatus("Prêt");
+  const delta = direction === "up" ? 1 : -1;
+  state.prefs.fontIndex = Math.max(0, Math.min(FONT_CLASSES.length - 1, state.prefs.fontIndex + delta));
+  rebuildReadingSurfaceClasses();
+  cacheCurrentBookData();
+  schedulePreferencesSave();
 }
 
-function getBookById(bookId) {
-  return state.books.find((book) => book.bookId === bookId) || null;
+function openTextSizeModal() {
+  if (state.mode === "pdf") {
+    dom.textSizeModalTitle.textContent = "Zoom du PDF";
+    dom.textSizeModalDesc.textContent = "Ajuste le niveau de zoom du PDF en temps réel.";
+    dom.decreaseTextBtn.textContent = "Dézoomer";
+    dom.increaseTextBtn.textContent = "Zoomer";
+  } else {
+    dom.textSizeModalTitle.textContent = "Changer la taille du texte";
+    dom.textSizeModalDesc.textContent = "Les changements s’appliquent immédiatement.";
+    dom.decreaseTextBtn.textContent = "Réduire le texte";
+    dom.increaseTextBtn.textContent = "Agrandir le texte";
+  }
+  openModal(dom.textSizeModal);
 }
 
-function roundTo(value, decimals = 2) {
-  const factor = 10 ** decimals;
-  return Math.round((Number(value) || 0) * factor) / factor;
-}
+function renderInstallInstructions() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
 
-function updateFontOrZoom(delta) {
-  if (state.mode === "text") {
-    state.fontIndex = Math.max(0, Math.min(FONT_CLASSES.length - 1, state.fontIndex + delta));
-    void renderCurrentPage();
+  if (isStandalone) {
+    dom.installModalContent.innerHTML = `<p>L’application semble déjà installée sur cet appareil.</p>`;
     return;
   }
 
-  const step = CONFIG.pdfZoomStep || 0.15;
-  const minZoom = CONFIG.minPdfZoom || 0.85;
-  const maxZoom = CONFIG.maxPdfZoom || 2.4;
-  state.pdfZoomMultiplier = roundTo(Math.max(minZoom, Math.min(maxZoom, state.pdfZoomMultiplier + (delta * step))), 2);
-  void renderCurrentPage();
+  if (state.deferredInstallPrompt) {
+    dom.installModalContent.innerHTML = `<p>Appuie sur le bouton ci-dessous pour ajouter rapidement le lecteur à l’écran d’accueil.</p><div class="book-actions"><button id="confirmInstallBtn" class="nav-btn" type="button">Installer</button></div>`;
+    openModal(dom.installModal);
+    const confirmBtn = document.getElementById("confirmInstallBtn");
+    confirmBtn?.addEventListener("click", async () => {
+      const promptEvent = state.deferredInstallPrompt;
+      state.deferredInstallPrompt = null;
+      closeModal(dom.installModal);
+      if (!promptEvent) return;
+      await promptEvent.prompt();
+      await promptEvent.userChoice.catch(() => null);
+    }, { once: true });
+    return;
+  }
+
+  if (isIOS) {
+    dom.installModalContent.innerHTML = `
+      <p>Sur iPhone et iPad, ouvre le menu de partage du navigateur puis choisis <strong>Ajouter à l’écran d’accueil</strong>.</p>
+      <p>Une fois ajouté, le lecteur s’ouvrira plus vite comme une application.</p>
+    `;
+  } else {
+    dom.installModalContent.innerHTML = `
+      <p>Si l’installation n’est pas proposée automatiquement, utilise le menu du navigateur puis choisis <strong>Installer l’application</strong> ou <strong>Ajouter à l’écran d’accueil</strong>.</p>
+    `;
+  }
 }
 
-function fitCurrentView() {
-  state.pdfZoomMultiplier = 1;
-  void renderCurrentPage({ forceFit: true });
+function currentProgressLabel() {
+  const totalPages = state.totalPages || 0;
+  const progressPercent = totalPages ? Math.round((state.currentPage / totalPages) * 1000) / 10 : 0;
+  return state.prefs.progressDisplayMode === "pages" ? `${state.currentPage} / ${totalPages} pages` : `${progressPercent} %`;
 }
 
-function rebuildAdminBookIdFromTitle() {
-  if (!dom.bookIdInput.dataset.lockedManual) {
-    dom.bookIdInput.value = slugify(dom.bookTitleInput.value);
+async function addBookmark() {
+  if (!state.currentBook) return;
+  const existing = state.bookmarks.some((bookmark) => bookmark.page === state.currentPage);
+  if (existing) {
+    showToast("Ce signet existe déjà");
+    return;
+  }
+
+  const optimisticBookmark = { page: state.currentPage, createdAt: new Date().toISOString() };
+  state.bookmarks = [...state.bookmarks, optimisticBookmark];
+  cacheCurrentBookData();
+  renderBookmarks();
+  showToast(`Signet ajouté à la page ${state.currentPage}`);
+
+  try {
+    const response = await jsonp("saveBookmark", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page: state.currentPage
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible d'enregistrer le signet.");
+  } catch (error) {
+    console.error(error);
+    state.bookmarks = state.bookmarks.filter((bookmark) => bookmark.page !== state.currentPage);
+    cacheCurrentBookData();
+    renderBookmarks();
+    showToast("Échec de l'ajout du signet");
+  }
+}
+
+async function removeBookmark(page) {
+  const previous = [...state.bookmarks];
+  state.bookmarks = state.bookmarks.filter((bookmark) => bookmark.page !== page);
+  cacheCurrentBookData();
+  renderBookmarks();
+  try {
+    const response = await jsonp("deleteBookmark", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de retirer le signet.");
+    showToast("Signet retiré");
+  } catch (error) {
+    console.error(error);
+    state.bookmarks = previous;
+    cacheCurrentBookData();
+    renderBookmarks();
+    showToast("Impossible de retirer le signet");
+  }
+}
+
+async function saveCurrentNote() {
+  if (!state.currentBook) return;
+  const pageKey = String(state.currentPage);
+  const value = dom.noteInput.value.trim();
+  const previous = { ...state.notesMap };
+  if (value) state.notesMap[pageKey] = value;
+  else delete state.notesMap[pageKey];
+  cacheCurrentBookData();
+  dom.noteStatus.textContent = "Enregistrement...";
+  try {
+    const response = await jsonp(value ? "saveNote" : "deleteNote", {
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page: pageKey,
+      noteText: value
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible d'enregistrer la note.");
+    dom.noteStatus.textContent = "Note enregistrée";
+    window.setTimeout(() => { dom.noteStatus.textContent = ""; }, 1600);
+  } catch (error) {
+    console.error(error);
+    state.notesMap = previous;
+    cacheCurrentBookData();
+    dom.noteStatus.textContent = "Échec de l'enregistrement";
+    window.setTimeout(() => { dom.noteStatus.textContent = ""; }, 2000);
   }
 }
 
@@ -842,164 +1004,14 @@ function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(index, index + chunkSize));
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
 }
 
 function utf8ToBase64(text) {
   return btoa(unescape(encodeURIComponent(text)));
-}
-
-function detectCoverExtension(file) {
-  const name = String(file?.name || "").toLowerCase();
-  if (name.endsWith(".png")) return "png";
-  if (name.endsWith(".webp")) return "webp";
-  return "jpg";
-}
-
-function buildLineFromWords(words) {
-  const parts = [];
-  let previousRight = null;
-  for (const word of words) {
-    const text = String(word.text || "").trim();
-    if (!text) continue;
-    const left = Number(word.x) || 0;
-    if (parts.length === 0) {
-      parts.push(text);
-    } else {
-      const gap = previousRight === null ? 0 : left - previousRight;
-      const noLeadingSpace = /^[,.;:!?%)\]»]/.test(text);
-      const noTrailingSpace = /[(\[«]$/.test(parts[parts.length - 1]);
-      if (noLeadingSpace || noTrailingSpace || gap < 1.5) {
-        parts[parts.length - 1] += text;
-      } else {
-        parts.push(text);
-      }
-    }
-    previousRight = (Number(word.x) || 0) + (Number(word.width) || 0);
-  }
-  return normalizeLineText(parts);
-}
-
-function extractStructuredPage(items) {
-  if (!Array.isArray(items) || !items.length) {
-    return { html: "", text: "", charCount: 0, renderMode: "pdf" };
-  }
-
-  const entries = items
-    .map((item) => ({
-      text: String(item.str || ""),
-      x: Number(item.transform?.[4] || 0),
-      y: Number(item.transform?.[5] || 0),
-      width: Number(item.width || 0),
-      height: Number(item.height || 0),
-    }))
-    .filter((item) => item.text && item.text.trim());
-
-  if (!entries.length) return { html: "", text: "", charCount: 0, renderMode: "pdf" };
-
-  const sorted = entries.sort((a, b) => {
-    if (Math.abs(b.y - a.y) > 3) return b.y - a.y;
-    return a.x - b.x;
-  });
-
-  const lines = [];
-  let currentWords = [];
-  let currentY = null;
-  let currentHeight = 0;
-
-  for (const entry of sorted) {
-    if (currentY === null) {
-      currentWords = [entry];
-      currentY = entry.y;
-      currentHeight = entry.height || 10;
-      continue;
-    }
-    const threshold = Math.max(2.8, (currentHeight || 10) * 0.45);
-    if (Math.abs(entry.y - currentY) <= threshold) {
-      currentWords.push(entry);
-      currentHeight = Math.max(currentHeight, entry.height || 10);
-    } else {
-      const ordered = currentWords.sort((a, b) => a.x - b.x);
-      lines.push({
-        text: buildLineFromWords(ordered),
-        y: currentY,
-        height: currentHeight,
-        left: ordered[0]?.x || 0,
-      });
-      currentWords = [entry];
-      currentY = entry.y;
-      currentHeight = entry.height || 10;
-    }
-  }
-
-  if (currentWords.length) {
-    const ordered = currentWords.sort((a, b) => a.x - b.x);
-    lines.push({
-      text: buildLineFromWords(ordered),
-      y: currentY,
-      height: currentHeight,
-      left: ordered[0]?.x || 0,
-    });
-  }
-
-  const filteredLines = lines
-    .map((line) => ({ ...line, text: String(line.text || "").trim() }))
-    .filter((line) => line.text);
-
-  const averageHeight = filteredLines.reduce((sum, line) => sum + (line.height || 0), 0) / Math.max(1, filteredLines.length);
-  const leftValues = filteredLines.map((line) => line.left).sort((a, b) => a - b);
-  const baselineLeft = leftValues[Math.floor(leftValues.length * 0.2)] || 0;
-
-  const blocks = [];
-  let paragraph = [];
-  let previousLine = null;
-
-  const pushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push({ type: "paragraph", text: paragraph.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
-    paragraph = [];
-  };
-
-  for (const line of filteredLines) {
-    const text = line.text;
-    const isDialogue = /^[-–—]\s*/.test(text);
-    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ'’\s]{4,}$/.test(text) && text.length <= 60;
-    const indent = line.left - baselineLeft;
-    const gap = previousLine ? Math.abs(previousLine.y - line.y) : 0;
-    const strongBreak = previousLine && gap > Math.max(averageHeight * 1.45, 14);
-    const indentBreak = indent > Math.max(averageHeight * 1.2, 16);
-
-    if (isDialogue) {
-      pushParagraph();
-      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
-    } else if (isCentered) {
-      pushParagraph();
-      blocks.push({ type: "centered", text });
-    } else {
-      if (strongBreak || indentBreak) pushParagraph();
-      paragraph.push(text);
-    }
-
-    previousLine = line;
-  }
-  pushParagraph();
-
-  const plainText = blocks.map((block) => block.text).join("\n\n").trim();
-  const charCount = plainText.replace(/\s+/g, "").length;
-  if (!blocks.length || charCount < 18) {
-    return { html: "", text: plainText, charCount, renderMode: "pdf" };
-  }
-
-  const html = blocks.map((block) => {
-    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
-    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
-    return `<p>${escapeHtml(block.text)}</p>`;
-  }).join("");
-
-  return { html, text: plainText, charCount, renderMode: "text" };
 }
 
 async function convertPdfFileToJson(file, metadata) {
@@ -1013,13 +1025,14 @@ async function convertPdfFileToJson(file, metadata) {
     dom.publishProgress.textContent = `Extraction du texte - page ${pageNumber} / ${pdf.numPages}`;
     const page = await pdf.getPage(pageNumber);
     const textContent = await page.getTextContent();
-    const structured = extractStructuredPage(textContent.items);
+    const blocks = extractPageText(textContent.items);
     pages.push({
       page: pageNumber,
-      text: structured.text,
-      html: structured.html,
-      charCount: structured.charCount,
-      renderMode: structured.renderMode,
+      blocks,
+      text: blocks.map((block) => block.text).join("\n\n"),
+      html: blocksToHtml(blocks),
+      hasUsableText: blocks.length > 0,
+      charCount: blocks.map((block) => block.text).join("").length
     });
   }
 
@@ -1030,8 +1043,16 @@ async function convertPdfFileToJson(file, metadata) {
     sourceFileName: file.name,
     generatedAt: new Date().toISOString(),
     totalPages: pdf.numPages,
-    pages,
+    pages
   };
+}
+
+async function postAdminAction(formData) {
+  await fetch(CONFIG.appsScriptUrl, {
+    method: "POST",
+    mode: "no-cors",
+    body: formData
+  });
 }
 
 async function publishBook(event) {
@@ -1041,17 +1062,15 @@ async function publishBook(event) {
     return;
   }
 
-  const pdfFile = dom.bookPdfInput.files?.[0];
-  if (!pdfFile) {
+  const file = dom.bookPdfInput.files?.[0];
+  if (!file) {
     showToast("Choisis un PDF");
     return;
   }
 
   const title = dom.bookTitleInput.value.trim();
-  const bookId = slugify(dom.bookIdInput.value.trim() || title || pdfFile.name.replace(/\.pdf$/i, ""));
+  const bookId = slugify(dom.bookIdInput.value.trim() || title || file.name.replace(/\.pdf$/i, ""));
   const author = dom.bookAuthorInput.value.trim();
-  const coverFile = dom.bookCoverInput.files?.[0] || null;
-
   if (!title || !bookId) {
     showToast("Titre ou identifiant manquant");
     return;
@@ -1062,16 +1081,18 @@ async function publishBook(event) {
   dom.publishProgress.textContent = "Lecture du PDF local...";
 
   try {
-    const jsonDoc = await convertPdfFileToJson(pdfFile, { title, bookId, author });
-    const pdfBase64 = arrayBufferToBase64(await pdfFile.arrayBuffer());
-    const jsonBase64 = utf8ToBase64(JSON.stringify(jsonDoc, null, 2));
+    const jsonDoc = await convertPdfFileToJson(file, { title, bookId, author });
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfBase64 = arrayBufferToBase64(arrayBuffer);
+    const jsonString = JSON.stringify(jsonDoc, null, 2);
+    const jsonBase64 = utf8ToBase64(jsonString);
 
     let coverBase64 = "";
-    let coverExt = "";
+    let coverExtension = "";
+    const coverFile = dom.bookCoverInput.files?.[0];
     if (coverFile) {
-      dom.publishProgress.textContent = "Préparation de l’image de couverture...";
       coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
-      coverExt = detectCoverExtension(coverFile);
+      coverExtension = (coverFile.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
     }
 
     dom.publishProgress.textContent = "Envoi au service de publication...";
@@ -1083,27 +1104,25 @@ async function publishBook(event) {
     formData.append("title", title);
     formData.append("author", author);
     formData.append("publishNow", dom.publishNowInput.checked ? "true" : "false");
-    formData.append("sourceFileName", pdfFile.name);
+    formData.append("allowPdfMode", dom.allowPdfModeInput.checked ? "true" : "false");
+    formData.append("sourceFileName", file.name);
     formData.append("totalPages", String(jsonDoc.totalPages));
     formData.append("pdfBase64", pdfBase64);
     formData.append("jsonBase64", jsonBase64);
-    if (coverBase64) {
-      formData.append("coverBase64", coverBase64);
-      formData.append("coverExt", coverExt);
-    }
+    formData.append("coverBase64", coverBase64);
+    formData.append("coverExtension", coverExtension);
     formData.append("repoOwner", CONFIG.githubRepoOwner || "");
     formData.append("repoName", CONFIG.githubRepoName || "");
     formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
     formData.append("assetsBasePath", CONFIG.githubAssetsBasePath || "assets/books");
 
     await postAdminAction(formData);
-
     setPublishStatus("Publication envoyée...");
-    dom.publishProgress.textContent = "Vérification de la publication dans GitHub...";
+    showToast("Publication envoyée. Vérification en cours...");
 
     let published = false;
     for (let attempt = 1; attempt <= (CONFIG.maxPublishPollAttempts || 8); attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, CONFIG.publishPollDelayMs || 4000));
+      await new Promise((resolve) => window.setTimeout(resolve, CONFIG.publishPollDelayMs || 3500));
       await refreshBooks();
       const book = getBookById(bookId);
       if (book && book.jsonPath && book.pdfPath) {
@@ -1114,9 +1133,8 @@ async function publishBook(event) {
 
     if (published) {
       setPublishStatus("Livre publié", true);
-      dom.publishProgress.textContent = "Le PDF, le JSON et la couverture sont publiés dans le dépôt GitHub.";
+      dom.publishProgress.textContent = "Le livre est maintenant disponible dans le dépôt GitHub.";
       dom.publishForm.reset();
-      dom.bookIdInput.dataset.lockedManual = "";
     } else {
       setPublishStatus("Publication envoyée. Vérifie GitHub ou le journal Apps Script.");
       dom.publishProgress.textContent = "La publication peut prendre un peu de temps. Recharge la liste des livres.";
@@ -1139,7 +1157,7 @@ async function toggleBookPublished(bookId) {
       email: state.email,
       adminCode: state.adminCode,
       bookId,
-      published: book && book.published ? "false" : "true",
+      published: book && book.published ? "false" : "true"
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer le statut.");
     await refreshBooks();
@@ -1147,6 +1165,51 @@ async function toggleBookPublished(bookId) {
   } catch (error) {
     console.error(error);
     showToast("Impossible de changer le statut");
+  }
+}
+
+async function toggleBookPdf(bookId) {
+  if (!state.adminUnlocked) return;
+  try {
+    const book = getBookById(bookId);
+    const response = await jsonp("toggleBookPdfMode", {
+      email: state.email,
+      adminCode: state.adminCode,
+      bookId,
+      allowPdfMode: book && book.allowPdfMode ? "false" : "true"
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de changer l’option PDF.");
+    await refreshBooks();
+    showToast("Option PDF mise à jour");
+  } catch (error) {
+    console.error(error);
+    showToast("Impossible de changer l’option PDF");
+  }
+}
+
+async function deleteBook(bookId) {
+  if (!state.adminUnlocked) return;
+  const book = getBookById(bookId);
+  if (!book) return;
+  const confirmed = window.confirm(`Supprimer définitivement « ${book.title} » de la bibliothèque et du dépôt GitHub ?`);
+  if (!confirmed) return;
+  try {
+    const response = await jsonp("deleteBook", {
+      email: state.email,
+      adminCode: state.adminCode,
+      bookId
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer le livre.");
+    if (state.currentBook?.bookId === bookId) {
+      await saveProgress({ immediate: true });
+      state.currentBook = null;
+      switchScreen("library");
+    }
+    await refreshBooks();
+    showToast("Livre supprimé");
+  } catch (error) {
+    console.error(error);
+    showToast("Impossible de supprimer le livre");
   }
 }
 
@@ -1170,7 +1233,75 @@ async function unlockAdmin() {
   }
 }
 
-function logoutToGate() {
+async function refreshBooks() {
+  const books = await listBooks();
+  renderBookList();
+  renderAdminBooks();
+  return books;
+}
+
+async function openBook(book, options = {}) {
+  state.currentBook = book;
+  state.currentPage = 1;
+  state.totalPages = Number(book.totalPages) || 0;
+  state.lastSaveSignature = "";
+  state.pdfDoc = null;
+  state.textDoc = null;
+  state.localPdfPageFallbacks = new Set();
+  state.pdfZoom = 1;
+
+  setReaderLoading(true, "Livre en cours de chargement, veuillez patienter.");
+  setSaveStatus("Chargement...");
+  switchScreen("reader");
+  toggleMenu(false);
+
+  const cachedPrefs = readCachedPrefs(book.bookId);
+  const cachedBookmarks = readCachedBookmarks(book.bookId);
+  const cachedNotes = readCachedNotes(book.bookId);
+  if (cachedPrefs) state.prefs = { ...DEFAULT_PREFS, ...cachedPrefs };
+  state.bookmarks = Array.isArray(cachedBookmarks) ? cachedBookmarks : [];
+  state.notesMap = cachedNotes && typeof cachedNotes === "object" ? cachedNotes : {};
+  updateUiLabels();
+
+  const [progress, prefs, bookmarks, notes, jsonDoc] = await Promise.all([
+    fetchProgress(book.bookId).catch(() => null),
+    fetchPreferences(book.bookId).catch(() => null),
+    fetchBookmarks(book.bookId).catch(() => []),
+    fetchNotes(book.bookId).catch(() => []),
+    loadTextJson(book).catch(() => null)
+  ]);
+
+  state.textDoc = jsonDoc;
+  if (prefs) state.prefs = { ...DEFAULT_PREFS, ...state.prefs, ...prefs };
+  state.bookmarks = bookmarks.length ? bookmarks : state.bookmarks;
+  state.notesMap = notes.length ? normalizeNoteRows(notes) : state.notesMap;
+
+  if (jsonDoc?.totalPages) state.totalPages = Number(jsonDoc.totalPages) || state.totalPages;
+  if (!state.totalPages && book.allowPdfMode) {
+    const pdfDoc = await loadPdfDocument(book);
+    state.totalPages = pdfDoc.numPages;
+  }
+
+  const desiredMode = options.mode || prefs?.preferredMode || state.prefs.preferredMode || "text";
+  if (!jsonDoc) state.mode = book.allowPdfMode ? "pdf" : "text";
+  else if (desiredMode === "pdf" && book.allowPdfMode) state.mode = "pdf";
+  else state.mode = "text";
+
+  if (state.mode === "pdf") {
+    await loadPdfDocument(book);
+    state.totalPages = state.pdfDoc?.numPages || state.totalPages;
+  }
+
+  const restoredPage = options.page || progress?.currentPage || 1;
+  state.currentPage = Math.max(1, Math.min(state.totalPages || 1, Number(restoredPage) || 1));
+  persistSession();
+  cacheCurrentBookData();
+  await renderCurrentPage();
+  setReaderLoading(false);
+  setSaveStatus("Prêt");
+}
+
+function logoutToGate({ clearRemember = false } = {}) {
   state.email = "";
   state.isAdminCandidate = false;
   state.adminUnlocked = false;
@@ -1179,63 +1310,162 @@ function logoutToGate() {
   state.currentBook = null;
   state.pdfDoc = null;
   state.textDoc = null;
-  state.totalPages = 0;
-  state.currentPage = 1;
   state.bookmarks = [];
-  state.notes = [];
-  state.editingNoteId = "";
+  state.notesMap = {};
   state.lastSaveSignature = "";
-  state.pdfZoomMultiplier = 1;
   dom.adminCodeInput.value = "";
   dom.publishForm.hidden = true;
-  dom.emailInput.value = "";
+  dom.controlPanel.hidden = true;
+  dom.menuBackdrop.hidden = true;
   setGateMessage("");
-  setGateBusy(false);
+  setGateLoading(false);
   switchScreen("gate");
+  clearSessionStorage();
+  if (clearRemember) clearRememberedIdentity();
 }
 
 async function handleLogin(event) {
-  event.preventDefault();
+  if (event) event.preventDefault();
   const email = normalizeEmail(dom.emailInput.value);
   const suffixes = CONFIG.allowedDomainSuffixes || [];
-  const domainOk = suffixes.length === 0 || suffixes.some((suffix) => email.endsWith(`@${suffix}`));
+  state.rememberMe = !!dom.rememberMeInput.checked;
 
-  if (!isValidEmail(email) || !domainOk) {
+  if (!email || (suffixes.length && !suffixes.some((suffix) => email.endsWith(`@${suffix}`)))) {
     setGateMessage("Courriel scolaire invalide.", "error");
     return;
   }
 
+  dom.loginBtn.disabled = true;
   setGateMessage("");
-  setGateBusy(true, "Validation de votre identité, veuillez patienter quelques instants. Le chargement est en cours.");
+  setGateLoading(true, "Validation de votre identité, veuillez patienter quelques instants.");
 
   try {
     const response = await auth(email);
     if (!response?.ok) throw new Error(response?.message || "Accès refusé.");
     state.email = email;
     state.isAdminCandidate = !!response.isAdminCandidate;
+    rememberEmail(email);
+    persistSession();
     dom.adminPanel.hidden = !state.isAdminCandidate;
+    setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
     switchScreen("library");
     await refreshBooks();
   } catch (error) {
     console.error(error);
     setGateMessage(error.message || "Accès refusé.", "error");
+    switchScreen("gate");
   } finally {
-    setGateBusy(false);
+    setGateLoading(false);
+    dom.loginBtn.disabled = false;
   }
+}
+
+async function restoreSessionIfPossible() {
+  const rememberedEmail = loadRememberedEmail();
+  const rememberedFlag = loadRememberedFlag();
+  dom.emailInput.value = rememberedEmail;
+  dom.rememberMeInput.checked = rememberedFlag;
+  state.rememberMe = rememberedFlag;
+
+  const saved = readSavedSession();
+  if (!saved?.email) return;
+  dom.emailInput.value = saved.email;
+  dom.rememberMeInput.checked = saved.rememberMe !== false;
+  state.rememberMe = saved.rememberMe !== false;
+
+  try {
+    dom.loginBtn.disabled = true;
+    setGateLoading(true, "Validation de votre identité, veuillez patienter quelques instants.");
+    const response = await auth(saved.email);
+    if (!response?.ok) throw new Error(response?.message || "Session invalide.");
+    state.email = saved.email;
+    state.isAdminCandidate = !!response.isAdminCandidate;
+    dom.adminPanel.hidden = !state.isAdminCandidate;
+    switchScreen("library");
+    setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
+    await refreshBooks();
+    if (saved.currentBookId) {
+      const book = getBookById(saved.currentBookId);
+      if (book) {
+        await openBook(book, { page: saved.currentPage, mode: saved.mode });
+      }
+    }
+  } catch (error) {
+    console.warn("Session non restaurée", error);
+    logoutToGate({ clearRemember: false });
+    dom.emailInput.value = saved.email;
+  } finally {
+    setGateLoading(false);
+    dom.loginBtn.disabled = false;
+  }
+}
+
+function setupInstallPrompt() {
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    state.deferredInstallPrompt = event;
+  });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.warn("Service worker non enregistré", error);
+    });
+  }
+}
+
+function setupZoomBlocking() {
+  document.addEventListener("wheel", (event) => {
+    if (event.ctrlKey || event.metaKey) event.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("keydown", (event) => {
+    const ctrlOrMeta = event.ctrlKey || event.metaKey;
+    if (!ctrlOrMeta) return;
+    if (["+", "-", "=", "0"].includes(event.key)) event.preventDefault();
+  });
+
+  document.addEventListener("touchstart", (event) => {
+    if (event.touches && event.touches.length > 1) event.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("touchmove", (event) => {
+    if (event.touches && event.touches.length > 1) event.preventDefault();
+  }, { passive: false });
+}
+
+function setupSwipeNavigation() {
+  dom.viewerShell.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1) {
+      state.swipeStart = null;
+      return;
+    }
+    const touch = event.touches[0];
+    state.swipeStart = { x: touch.clientX, y: touch.clientY, time: Date.now() };
+  }, { passive: true });
+
+  dom.viewerShell.addEventListener("touchend", async (event) => {
+    if (!state.swipeStart || event.changedTouches.length !== 1 || dom.controlPanel.hidden === false) return;
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - state.swipeStart.x;
+    const dy = touch.clientY - state.swipeStart.y;
+    const elapsed = Date.now() - state.swipeStart.time;
+    state.swipeStart = null;
+
+    if (elapsed > 450) return;
+    if (Math.abs(dx) < 70 || Math.abs(dy) > 50) return;
+
+    if (dx < 0 && state.currentPage < state.totalPages) {
+      await goToPage(state.currentPage + 1, { animate: "next" });
+    } else if (dx > 0 && state.currentPage > 1) {
+      await goToPage(state.currentPage - 1, { animate: "prev" });
+    }
+  }, { passive: true });
 }
 
 function attachEvents() {
   dom.loginForm.addEventListener("submit", handleLogin);
-  dom.refreshBooksBtn.addEventListener("click", async () => {
-    try {
-      await refreshBooks();
-      showToast("Bibliothèque actualisée");
-    } catch (error) {
-      console.error(error);
-      showToast("Impossible d’actualiser");
-    }
-  });
-  dom.logoutBtn.addEventListener("click", logoutToGate);
+  dom.refreshBooksBtn.addEventListener("click", refreshBooks);
+  dom.logoutBtn.addEventListener("click", () => logoutToGate({ clearRemember: false }));
   dom.backToLibraryBtn.addEventListener("click", async () => {
     await saveProgress({ immediate: true });
     switchScreen("library");
@@ -1243,42 +1473,64 @@ function attachEvents() {
   dom.menuToggle.addEventListener("click", () => toggleMenu());
   dom.menuBackdrop.addEventListener("click", () => toggleMenu(false));
   dom.closeMenuBtn.addEventListener("click", () => toggleMenu(false));
-  dom.prevBtn.addEventListener("click", () => goToPage(state.currentPage - 1));
-  dom.nextBtn.addEventListener("click", () => goToPage(state.currentPage + 1));
+  dom.prevBtn.addEventListener("click", () => goToPage(state.currentPage - 1, { animate: "prev" }));
+  dom.nextBtn.addEventListener("click", () => goToPage(state.currentPage + 1, { animate: "next" }));
+  dom.bottomPrevBtn.addEventListener("click", () => goToPage(state.currentPage - 1, { animate: "prev" }));
+  dom.bottomNextBtn.addEventListener("click", () => goToPage(state.currentPage + 1, { animate: "next" }));
   dom.goBtn.addEventListener("click", () => goToPage(Number(dom.pageInput.value)));
-  dom.pageInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      goToPage(Number(dom.pageInput.value));
-    }
+  dom.fitBtn.addEventListener("click", async () => {
+    if (state.mode === "pdf") state.pdfZoom = 1;
+    await renderCurrentPage();
   });
-  dom.fitBtn.addEventListener("click", fitCurrentView);
   dom.modeToggleBtn.addEventListener("click", async () => {
+    if (!state.currentBook?.allowPdfMode) return;
     if (state.mode === "text") {
-      if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
+      await loadPdfDocument(state.currentBook);
       state.mode = "pdf";
     } else {
-      if (state.textDoc) state.mode = "text";
-      else showToast("Aucune version texte disponible");
+      state.mode = state.textDoc ? "text" : "pdf";
     }
-    await renderCurrentPage({ forceFit: state.mode === "pdf" });
+    state.prefs.preferredMode = state.mode;
+    cacheCurrentBookData();
+    schedulePreferencesSave();
+    await renderCurrentPage();
   });
-  dom.fontMinusBtn.addEventListener("click", () => updateFontOrZoom(-1));
-  dom.fontPlusBtn.addEventListener("click", () => updateFontOrZoom(1));
+  dom.textSizeBtn.addEventListener("click", openTextSizeModal);
+  dom.closeTextSizeModalBtn.addEventListener("click", () => closeModal(dom.textSizeModal));
+  dom.decreaseTextBtn.addEventListener("click", () => updateTextSize("down"));
+  dom.increaseTextBtn.addEventListener("click", () => updateTextSize("up"));
   dom.themeBtn.addEventListener("click", async () => {
-    state.theme = state.theme === "paper" ? "night" : "paper";
+    state.prefs.theme = state.prefs.theme === "paper" ? "night" : "paper";
+    cacheCurrentBookData();
+    schedulePreferencesSave();
     await renderCurrentPage();
   });
   dom.bookmarkBtn.addEventListener("click", addBookmark);
   dom.saveBtn.addEventListener("click", () => saveProgress({ immediate: true }));
   dom.saveNoteBtn.addEventListener("click", saveCurrentNote);
-  dom.newNoteBtn.addEventListener("click", resetNoteEditor);
+  dom.showTopProgressInput.addEventListener("change", async () => {
+    state.prefs.showTopProgress = dom.showTopProgressInput.checked;
+    updateUiLabels();
+    cacheCurrentBookData();
+    schedulePreferencesSave();
+    await renderCurrentPage();
+  });
+  dom.progressText.addEventListener("click", toggleProgressDisplayMode);
+  dom.topProgressText.addEventListener("click", toggleProgressDisplayMode);
+  dom.installAppBtn.addEventListener("click", () => {
+    renderInstallInstructions();
+    openModal(dom.installModal);
+  });
+  dom.closeInstallModalBtn.addEventListener("click", () => closeModal(dom.installModal));
+  dom.modalBackdrop.addEventListener("click", () => {
+    closeModal(dom.textSizeModal);
+    closeModal(dom.installModal);
+  });
   dom.unlockAdminBtn.addEventListener("click", unlockAdmin);
   dom.publishForm.addEventListener("submit", publishBook);
   dom.reloadAdminBooksBtn.addEventListener("click", refreshBooks);
-  dom.bookTitleInput.addEventListener("input", rebuildAdminBookIdFromTitle);
-  dom.bookIdInput.addEventListener("input", () => {
-    dom.bookIdInput.dataset.lockedManual = dom.bookIdInput.value.trim() ? "1" : "";
+  dom.bookTitleInput.addEventListener("input", () => {
+    if (!dom.bookIdInput.value.trim()) dom.bookIdInput.value = slugify(dom.bookTitleInput.value);
   });
 
   dom.bookList.addEventListener("click", async (event) => {
@@ -1291,61 +1543,50 @@ function attachEvents() {
   dom.adminBooksList.addEventListener("click", async (event) => {
     const openButton = event.target.closest("[data-open-book]");
     const toggleButton = event.target.closest("[data-toggle-book]");
+    const togglePdfButton = event.target.closest("[data-toggle-pdf]");
+    const deleteButton = event.target.closest("[data-delete-book]");
     if (openButton) {
       const book = getBookById(openButton.dataset.openBook);
       if (book) await openBook(book);
       return;
     }
-    if (toggleButton) {
-      await toggleBookPublished(toggleButton.dataset.toggleBook);
-    }
+    if (toggleButton) return toggleBookPublished(toggleButton.dataset.toggleBook);
+    if (togglePdfButton) return toggleBookPdf(togglePdfButton.dataset.togglePdf);
+    if (deleteButton) return deleteBook(deleteButton.dataset.deleteBook);
   });
 
   dom.bookmarkList.addEventListener("click", async (event) => {
     const jumpButton = event.target.closest("[data-bookmark-page]");
     const removeButton = event.target.closest("[data-remove-bookmark]");
-    if (jumpButton) {
-      await goToPage(Number(jumpButton.dataset.bookmarkPage), { save: false });
-      return;
-    }
-    if (removeButton) {
-      await removeBookmark(Number(removeButton.dataset.removeBookmark));
-    }
-  });
-
-  dom.notesList.addEventListener("click", async (event) => {
-    const editButton = event.target.closest("[data-edit-note]");
-    const deleteButton = event.target.closest("[data-delete-note]");
-    if (editButton) {
-      startEditingNote(editButton.dataset.editNote);
-      return;
-    }
-    if (deleteButton) {
-      await deleteNote(deleteButton.dataset.deleteNote);
-    }
+    if (jumpButton) return goToPage(Number(jumpButton.dataset.bookmarkPage), { save: false });
+    if (removeButton) return removeBookmark(Number(removeButton.dataset.removeBookmark));
   });
 
   window.addEventListener("resize", () => {
     if (!state.currentBook || state.mode !== "pdf") return;
     window.clearTimeout(window.__readerResizeTimer);
-    window.__readerResizeTimer = window.setTimeout(() => renderCurrentPage({ forceFit: true }), 120);
+    window.__readerResizeTimer = window.setTimeout(() => renderCurrentPage(), 120);
   });
-  window.addEventListener("orientationchange", () => window.setTimeout(() => renderCurrentPage({ forceFit: true }), 180));
+  window.addEventListener("orientationchange", () => window.setTimeout(() => renderCurrentPage(), 180));
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) saveProgress({ immediate: true });
   });
-  window.addEventListener("beforeunload", () => {
+  window.addEventListener("pagehide", () => {
     if (state.currentBook) saveProgress({ immediate: true });
   });
+
+  setupSwipeNavigation();
 }
 
 function init() {
-  blockEasyActions();
   attachEvents();
+  setupInstallPrompt();
+  setupZoomBlocking();
   switchScreen("gate");
   toggleMenu(false);
   rebuildReadingSurfaceClasses();
   setSaveStatus("En attente");
+  restoreSessionIfPossible();
 }
 
 init();
