@@ -1,5 +1,7 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/build/pdf.min.mjs";
 
+// VERSION: v4-patch-2 — ne pas supprimer cette ligne (sert à confirmer le déploiement)
+
 const CONFIG = window.READER_CONFIG || {};
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${CONFIG.pdfJsVersion || "5.6.205"}/build/pdf.worker.min.mjs`;
 
@@ -338,8 +340,10 @@ function persistSession() {
   };
   try {
     sessionStorage.setItem(STORAGE_KEYS.session, JSON.stringify(payload));
-    if (state.rememberMe) localStorage.setItem(STORAGE_KEYS.persistentSession, JSON.stringify(payload));
-    else localStorage.removeItem(STORAGE_KEYS.persistentSession);
+    // Toujours sauvegarder en localStorage : sur mobile, sessionStorage est effacé
+    // quand le navigateur ferme l'app. La session persistante évite de devoir
+    // se reconnecter à chaque ouverture. La déconnexion reste possible via logout.
+    localStorage.setItem(STORAGE_KEYS.persistentSession, JSON.stringify(payload));
   } catch (error) {
     console.warn(error);
   }
