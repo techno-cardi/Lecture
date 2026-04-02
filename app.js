@@ -332,7 +332,9 @@ function persistSession() {
     rememberMe: !!state.rememberMe,
     currentBookId: state.currentBook?.bookId || "",
     currentPage: state.currentPage,
-    mode: state.mode
+    mode: state.mode,
+    adminUnlocked: !!state.adminUnlocked,
+    adminCode: state.adminUnlocked ? state.adminCode : ""
   };
   try {
     sessionStorage.setItem(STORAGE_KEYS.session, JSON.stringify(payload));
@@ -1074,11 +1076,33 @@ async function convertPdfFileToJson(file, metadata) {
 }
 
 async function postAdminAction(formData) {
-  await fetch(CONFIG.appsScriptUrl, {
+  // Convertir FormData en objet JSON plat pour eviter la limite de taille
+  // de e.parameters Apps Script. Via e.postData.contents (text/plain + JSON),
+  // il n'y a pas de limite pratique sur la taille des valeurs.
+  const payload = {};
+  for (const [key, value] of formData.entries()) {
+    payload[key] = value;
+  }
+
+  const response = await fetch(CONFIG.appsScriptUrl, {
     method: "POST",
-    mode: "no-cors",
-    body: formData
+    mode: "cors",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify(payload)
   });
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Reponse inattendue du service Apps Script. Verifie l'URL et les permissions.");
+  }
+
+  if (!data?.ok) {
+    throw new Error(data?.message || "Echec Apps Script inconnu.");
+  }
+
+  return data;
 }
 
 async function publishBook(event) {
@@ -1142,29 +1166,26 @@ async function publishBook(event) {
     formData.append("repoBranch", CONFIG.githubRepoBranch || "main");
     formData.append("assetsBasePath", CONFIG.githubAssetsBasePath || "assets/books");
 
-    await postAdminAction(formData);
-    setPublishStatus("Publication envoyée...");
-    showToast("Publication envoyée. Vérification en cours...");
+    dom.publishProgress.textContent = "Envoi vers GitHub via Apps Script. Cela peut prendre 30 à 60 secondes selon la taille du PDF...";
+    const result = await postAdminAction(formData);
 
-    let published = false;
-    for (let attempt = 1; attempt <= (CONFIG.maxPublishPollAttempts || 8); attempt += 1) {
-      await new Promise((resolve) => window.setTimeout(resolve, CONFIG.publishPollDelayMs || 3500));
-      await refreshBooks({ background: true });
-      const book = getBookById(bookId);
-      if (book && book.jsonPath && book.pdfPath) {
-        published = true;
-        break;
+    // Mettre à jour state.books directement depuis la réponse — pas besoin de polling
+    if (result.book) {
+      const idx = state.books.findIndex((b) => b.bookId === result.book.bookId);
+      const merged = { ...( idx !== -1 ? state.books[idx] : {}), ...result.book };
+      if (idx !== -1) {
+        state.books[idx] = merged;
+      } else {
+        state.books.push(merged);
       }
+      saveBooksCache(state.books);
+      renderBookList();
+      renderAdminBooks();
     }
 
-    if (published) {
-      setPublishStatus("Livre publié", true);
-      dom.publishProgress.textContent = "Le livre est maintenant disponible dans le dépôt GitHub.";
-      dom.publishForm.reset();
-    } else {
-      setPublishStatus("Publication envoyée. Vérifie GitHub ou le journal Apps Script.");
-      dom.publishProgress.textContent = "La publication peut prendre un peu de temps. Recharge la liste des livres.";
-    }
+    setPublishStatus("Livre publié", true);
+    dom.publishProgress.textContent = "Le livre est maintenant disponible dans le dépôt GitHub.";
+    dom.publishForm.reset();
   } catch (error) {
     console.error(error);
     setPublishStatus("Échec de publication");
@@ -1250,9 +1271,13 @@ async function unlockAdmin() {
     if (!response?.ok) throw new Error(response?.message || "Code invalide.");
     state.adminUnlocked = true;
     state.adminCode = code;
+    state.books = response.books || [];
+    saveBooksCache(state.books);
     dom.publishForm.hidden = false;
     setPublishStatus("Module administrateur déverrouillé", true);
-    await refreshBooks();
+    persistSession();
+    renderBookList();
+    renderAdminBooks();
   } catch (error) {
     console.error(error);
     showToast("Code administrateur invalide");
@@ -1449,6 +1474,10 @@ async function restoreSessionIfPossible() {
     if (!response?.ok) throw new Error(response?.message || "Session invalide.");
     state.email = saved.email;
     state.isAdminCandidate = !!response.isAdminCandidate;
+    if (saved.adminUnlocked && saved.adminCode) {
+      state.adminUnlocked = true;
+      state.adminCode = saved.adminCode;
+    }
     dom.adminPanel.hidden = !state.isAdminCandidate;
     switchScreen("library");
     setGateLoading(true, "Livre en cours de chargement, veuillez patienter.");
@@ -1598,6 +1627,9 @@ function attachEvents() {
     closeModal(dom.installModal);
   });
   dom.unlockAdminBtn.addEventListener("click", unlockAdmin);
+  dom.adminCodeInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); unlockAdmin(); }
+  });
   dom.publishForm.addEventListener("submit", publishBook);
   dom.reloadAdminBooksBtn.addEventListener("click", refreshBooks);
   dom.bookTitleInput.addEventListener("input", () => {
