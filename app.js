@@ -1211,8 +1211,7 @@ async function postAdminAction(formData, options = {}) {
     }
 
     function onMessage(event) {
-      if (event.source !== iframe.contentWindow) return;
-      const data = event.data;
+      const data = event && event.data;
       if (!data || data.requestId !== requestId) return;
       cleanup();
       resolve(data.payload || { ok: false, message: "Réponse vide du service." });
