@@ -54,10 +54,6 @@
       </div>
 
       <p id="gateMessage" class="gate-message" aria-live="polite"></p>
-
-      <div class="small-note">
-        <p>Lecture web uniquement. Le document reste limité par les protections normales du navigateur.</p>
-      </div>
     </section>
 
     <!-- ═══════════════ BIBLIOTHÈQUE ═══════════════ -->
@@ -198,18 +194,20 @@
 
     <!-- Modal premier accès -->
     <div id="profileModal" class="font-modal-overlay" hidden>
-      <div class="font-modal-panel edit-book-modal-panel">
+      <div class="font-modal-panel profile-modal-panel">
         <div class="font-modal-title">Première connexion</div>
-        <div class="edit-book-form">
-          <p class="admin-help modal-help">Entre ton prénom et ton nom pour compléter ton accès.</p>
-          <label>Prénom
+        <p class="admin-help modal-help">Entre ton prénom et ton nom pour compléter ton accès.</p>
+        <div class="profile-modal-grid">
+          <label class="profile-field" for="profileFirstNameInput">
+            <span>Prénom</span>
             <input id="profileFirstNameInput" type="text" maxlength="80" autocomplete="given-name" placeholder="Prénom">
           </label>
-          <label>Nom
+          <label class="profile-field" for="profileLastNameInput">
+            <span>Nom</span>
             <input id="profileLastNameInput" type="text" maxlength="120" autocomplete="family-name" placeholder="Nom">
           </label>
         </div>
-        <div class="notes-actions" style="margin-top:4px;">
+        <div class="profile-modal-actions">
           <button id="profileSaveBtn" class="nav-btn" type="button">Continuer</button>
           <span id="profileStatus" class="save-status"></span>
         </div>

@@ -169,6 +169,8 @@ const state = {
   bookmarkPulseTimer: null,
   sourceTotalPages: 0,
   visiblePages: [],
+  authVerified: false,
+  bookmarkActionBusy: false,
 };
 
 // ════════════════════════════════════════
@@ -407,6 +409,48 @@ function markBookmarkArrival(pageNumber) {
   renderBookmarks();
 }
 
+function setBookmarkControlsDisabled(disabled) {
+  const shouldDisable = !!disabled;
+  if (dom.bookmarkBtn) dom.bookmarkBtn.disabled = shouldDisable;
+  if (!dom.bookmarkList) return;
+  dom.bookmarkList.querySelectorAll("button").forEach((btn) => {
+    btn.disabled = shouldDisable;
+  });
+}
+
+function resetSensitiveUiState() {
+  state.userProfile = { firstName: "", lastName: "" };
+  state.books = [];
+  state.currentBook = null;
+  state.pdfDoc = null;
+  state.textDoc = null;
+  state.totalPages = 0;
+  state.sourceTotalPages = 0;
+  state.visiblePages = [];
+  state.currentPage = 1;
+  state.bookmarks = [];
+  state.notes = [];
+  state.editingNoteId = "";
+  state.lastSaveSignature = "";
+  state.pdfZoomMultiplier = 1;
+  state.authVerified = false;
+  state.bookmarkActionBusy = false;
+  state.isBookmarkSaving = false;
+  if (dom.bookList) dom.bookList.innerHTML = "";
+  if (dom.libraryGreeting) dom.libraryGreeting.textContent = "";
+  if (dom.libraryMeta) dom.libraryMeta.textContent = "";
+  setBookmarkStatus("");
+  setSaveStatus("");
+}
+
+function renderLibraryLoadingState(message) {
+  updateLibraryGreeting();
+  dom.libraryMeta.textContent = canSeeAdminPanel()
+    ? `${state.email} - mode administrateur disponible`
+    : state.email;
+  dom.bookList.innerHTML = `<div class="empty-state loading-state"><span class="inline-spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
+}
+
 // ════════════════════════════════════════
 // SESSION — PERSIST / RESTORE
 // ════════════════════════════════════════
@@ -546,7 +590,9 @@ async function auth(email) {
 }
 
 async function refreshBooks() {
-  if (!state.email) return;
+  if (!state.email || !state.authVerified) {
+    throw new Error("Session invalide.");
+  }
   const response = await jsonp("listBooks", {
     email: state.email,
     adminCode: state.adminUnlocked ? state.adminCode : "",
@@ -561,6 +607,7 @@ async function refreshBooks() {
 // PROGRESSION
 // ════════════════════════════════════════
 async function fetchProgress(bookId) {
+  if (!state.authVerified) return null;
   const response = await jsonp("getProgress", { email: state.email, bookId });
   if (!response?.ok) return null;
   return response.progress || null;
@@ -580,8 +627,8 @@ function buildProgressPayload() {
   };
 }
 
-async function saveProgress({ immediate = false } = {}) {
-  if (!state.email || !state.currentBook) return;
+async function saveProgress({ immediate = false, showSuccess = false, showError = false } = {}) {
+  if (!state.email || !state.currentBook || !state.authVerified) return;
   const payload = buildProgressPayload();
   const signature = JSON.stringify(payload);
   if (!immediate && signature === state.lastSaveSignature) return;
@@ -591,10 +638,11 @@ async function saveProgress({ immediate = false } = {}) {
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
     state.lastSaveSignature = signature;
     setSaveStatus("Progression enregistrée", "success");
+    if (showSuccess) showToast("Progression enregistrée");
   } catch (error) {
     console.error(error);
     setSaveStatus("Sauvegarde impossible", "error");
-    showToast("Sauvegarde impossible");
+    if (showError) showToast("Sauvegarde impossible");
   }
 }
 
@@ -607,7 +655,7 @@ function scheduleSave() {
 // SIGNETS
 // ════════════════════════════════════════
 async function loadBookmarks() {
-  if (!state.currentBook) return;
+  if (!state.currentBook || !state.authVerified) return;
   const response = await jsonp("listBookmarks", {
     email: state.email, bookId: state.currentBook.bookId,
   });
@@ -616,56 +664,77 @@ async function loadBookmarks() {
 }
 
 async function addBookmark() {
-  if (!state.currentBook || state.isBookmarkSaving) return;
+  if (!state.currentBook || state.bookmarkActionBusy || !state.authVerified) return;
   if (state.bookmarks.some((b) => Number(b.page) === state.currentPage)) {
     setBookmarkStatus(`Un signet existe déjà pour la page ${state.currentPage}.`, "pending");
     showToast(`Signet déjà présent à la page ${state.currentPage}`);
     return;
   }
-  state.isBookmarkSaving = true;
-  dom.bookmarkBtn.disabled = true;
+  state.bookmarkActionBusy = true;
+  setBookmarkControlsDisabled(true);
   setBookmarkStatus("Sauvegarde du signet en cours, veuillez patienter…", "pending", true);
   try {
     const response = await jsonp("addBookmark", {
       email: state.email, bookId: state.currentBook.bookId, page: state.currentPage,
     });
-    if (!response?.ok) throw new Error(response?.message);
-    await loadBookmarks();
+    if (!response?.ok) throw new Error(response?.message || "Impossible d'ajouter le signet.");
+    state.bookmarks.push({
+      email: state.email,
+      bookId: state.currentBook.bookId,
+      page: state.currentPage,
+      createdAt: new Date().toISOString(),
+      label: "",
+    });
+    state.bookmarks.sort((a, b) => Number(a.page) - Number(b.page));
     markBookmarkArrival(state.currentPage);
+    renderBookmarks();
     setBookmarkStatus(`Signet enregistré à la page ${state.currentPage}.`, "success");
     showToast(`Signet ajouté - page ${state.currentPage}`);
   } catch (error) {
     console.error(error);
-    setBookmarkStatus("Impossible d'enregistrer le signet.", "error");
+    setBookmarkStatus(error.message || "Impossible d'enregistrer le signet.", "error");
     showToast("Impossible d'ajouter le signet");
   } finally {
-    state.isBookmarkSaving = false;
-    dom.bookmarkBtn.disabled = false;
+    state.bookmarkActionBusy = false;
+    setBookmarkControlsDisabled(false);
   }
 }
 
 async function removeBookmark(page) {
-  if (!state.currentBook) return;
+  if (!state.currentBook || state.bookmarkActionBusy || !state.authVerified) return;
+  state.bookmarkActionBusy = true;
+  setBookmarkControlsDisabled(true);
+  setBookmarkStatus("Suppression du signet en cours, veuillez patienter…", "pending", true);
   try {
     const response = await jsonp("removeBookmark", {
       email: state.email, bookId: state.currentBook.bookId, page,
     });
-    if (!response?.ok) throw new Error(response?.message);
-    await loadBookmarks();
+    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer le signet.");
+    state.bookmarks = state.bookmarks.filter((item) => Number(item.page) !== Number(page));
+    if (state.lastOpenedBookmarkPage === Number(page)) state.lastOpenedBookmarkPage = 0;
+    renderBookmarks();
+    setBookmarkStatus("Signet supprimé.", "success");
     showToast("Signet supprimé");
   } catch (error) {
     console.error(error);
+    setBookmarkStatus(error.message || "Impossible de supprimer le signet.", "error");
     showToast("Impossible de supprimer le signet");
+  } finally {
+    state.bookmarkActionBusy = false;
+    setBookmarkControlsDisabled(false);
   }
 }
 
 async function renameBookmark(page) {
-  if (!state.currentBook) return;
+  if (!state.currentBook || state.bookmarkActionBusy || !state.authVerified) return;
   const bookmark = state.bookmarks.find((item) => Number(item.page) === Number(page));
   if (!bookmark) return;
   const currentLabel = String(bookmark.label || "");
   const nextLabel = window.prompt(`Renommer le signet de la page ${page}`, currentLabel);
   if (nextLabel === null) return;
+  state.bookmarkActionBusy = true;
+  setBookmarkControlsDisabled(true);
+  setBookmarkStatus("Enregistrement du nom du signet en cours…", "pending", true);
   try {
     const response = await jsonp("renameBookmark", {
       email: state.email,
@@ -674,7 +743,8 @@ async function renameBookmark(page) {
       label: nextLabel.trim(),
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible de renommer le signet.");
-    await loadBookmarks();
+    bookmark.label = nextLabel.trim();
+    renderBookmarks();
     markBookmarkArrival(page);
     setBookmarkStatus("Nom du signet enregistré.", "success");
     showToast("Nom du signet enregistré");
@@ -682,6 +752,9 @@ async function renameBookmark(page) {
     console.error(error);
     setBookmarkStatus(error.message || "Impossible de renommer le signet.", "error");
     showToast("Impossible de renommer le signet");
+  } finally {
+    state.bookmarkActionBusy = false;
+    setBookmarkControlsDisabled(false);
   }
 }
 
@@ -720,7 +793,7 @@ function renderBookmarks() {
 // NOTES
 // ════════════════════════════════════════
 async function loadNotes() {
-  if (!state.currentBook) return;
+  if (!state.currentBook || !state.authVerified) return;
   const response = await jsonp("listNotes", {
     email: state.email, bookId: state.currentBook.bookId,
   });
@@ -828,6 +901,10 @@ function coverHtml(book, className = "book-cover") {
 }
 
 function renderBookList() {
+  if (!state.authVerified) {
+    dom.bookList.innerHTML = "";
+    return;
+  }
   updateLibraryGreeting();
   dom.libraryMeta.textContent = canSeeAdminPanel()
     ? `${state.email} - mode administrateur disponible`
@@ -1106,7 +1183,12 @@ async function goToPage(pageNumber, { save = true, reason = "nav" } = {}) {
 }
 
 async function openBook(book, options = {}) {
-  const { preferredPage = 0, loadingMessage = "Chargement du livre en cours…" } = options;
+  if (!state.authVerified || !book) throw new Error("Session invalide.");
+  const firstName = getUserFirstName();
+  const defaultLoadingMessage = firstName
+    ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
+    : "Chargement du livre en cours…";
+  const { preferredPage = 0, loadingMessage = defaultLoadingMessage } = options;
   state.currentBook = book;
   state.currentPage = 1;
   state.totalPages = Number(book.totalPages) || 0;
@@ -1613,6 +1695,7 @@ async function publishBook(event) {
 // ════════════════════════════════════════
 function logoutToGate() {
   state.email = "";
+  state.authVerified = false;
   state.userProfile = { firstName: "", lastName: "" };
   resetAdminState();
   state.books = [];
@@ -1641,6 +1724,7 @@ function logoutToGate() {
 }
 
 async function maybeRestoreCurrentBook() {
+  if (!state.authVerified || !state.email) return false;
   const saved = readCurrentBookState();
   if (!saved?.bookId) return false;
   const book = getBookById(saved.bookId);
@@ -1658,9 +1742,18 @@ async function maybeRestoreCurrentBook() {
 
 async function finishLoginFlow(options = {}) {
   const { attemptRestore = true, fromRestore = false } = options;
+  if (!state.authVerified || !state.email) {
+    logoutToGate();
+    return;
+  }
   applyAdminVisibility();
   saveSession();
   switchScreen("library");
+  const firstName = getUserFirstName();
+  const loadingMessage = firstName
+    ? `Bienvenue ${firstName}! Chargement de la bibliothèque en cours. Merci de patienter.`
+    : "Chargement de la bibliothèque en cours. Merci de patienter.";
+  renderLibraryLoadingState(loadingMessage);
   await refreshBooks();
   if (attemptRestore) {
     const restored = await maybeRestoreCurrentBook();
@@ -1722,13 +1815,19 @@ async function handleLogin(event) {
   }
 
   resetAdminState();
+  resetSensitiveUiState();
+  state.email = "";
   setGateMessage("");
   setGateBusy(true, "Validation en cours, veuillez patienter…");
 
   try {
     const response = await auth(email);
     if (!response?.ok) throw new Error(response?.message || "Accès refusé.");
+    if (normalizeEmail(response.email) !== email) {
+      throw new Error("Réponse d'authentification invalide.");
+    }
     state.email = email;
+    state.authVerified = true;
     state.isAdminCandidate = !!response.isAdminCandidate;
     state.userProfile = {
       firstName: normalizePersonName(response.profile?.firstName || ""),
@@ -1755,7 +1854,10 @@ async function handleLogin(event) {
     await finishLoginFlow({ attemptRestore: true });
   } catch (error) {
     console.error(error);
+    resetSensitiveUiState();
+    state.email = "";
     setGateMessage(error.message || "Accès refusé.", "error");
+    switchScreen("gate");
   } finally {
     setGateBusy(false);
   }
@@ -1945,7 +2047,7 @@ function attachEvents() {
     toggleMenu(false);
     setBookLoading(true, "Veuillez patienter, de retour à la bibliothèque…");
     try {
-      await saveProgress({ immediate: true });
+      await saveProgress({ immediate: true, showError: false });
       clearCurrentBookState();
       state.currentBook = null;
       switchScreen("library");
@@ -2027,7 +2129,7 @@ function attachEvents() {
 
   // Signets / notes / sauvegarde
   dom.bookmarkBtn.addEventListener("click", addBookmark);
-  dom.saveBtn.addEventListener("click", () => saveProgress({ immediate: true }));
+  dom.saveBtn.addEventListener("click", () => saveProgress({ immediate: true, showSuccess: true, showError: true }));
   dom.saveNoteBtn.addEventListener("click", saveCurrentNote);
   dom.newNoteBtn.addEventListener("click", resetNoteEditor);
 
@@ -2114,7 +2216,7 @@ function attachEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       if (state.currentBook) saveCurrentBookState();
-      saveProgress({ immediate: true });
+      saveProgress({ immediate: true, showError: false });
     }
   });
   window.addEventListener("pagehide", () => {
@@ -2123,7 +2225,7 @@ function attachEvents() {
   window.addEventListener("beforeunload", () => {
     if (state.currentBook) {
       saveCurrentBookState();
-      saveProgress({ immediate: true });
+      saveProgress({ immediate: true, showError: false });
     }
   });
 
@@ -2154,8 +2256,12 @@ async function init() {
   const sessionOk = restoreSession();
   if (sessionOk && state.email) {
     try {
-      const response = await auth(state.email);
+      const restoredEmail = normalizeEmail(state.email);
+      const response = await auth(restoredEmail);
       if (!response?.ok) throw new Error(response?.message || "Session expirée.");
+      if (normalizeEmail(response.email) !== restoredEmail) throw new Error("Session invalide.");
+      state.email = restoredEmail;
+      state.authVerified = true;
       state.isAdminCandidate = !!response.isAdminCandidate;
       if (!canSeeAdminPanel()) {
         state.adminUnlocked = false;
@@ -2167,15 +2273,20 @@ async function init() {
       };
       if (state.adminUnlocked) setPublishStatus("Module administrateur déverrouillé", true);
       if (!response.profileComplete) {
+        clearSession();
+        resetSensitiveUiState();
+        state.email = "";
+        resetAdminState();
         switchScreen("gate");
+        toggleMenu(false);
         setGateBusy(false);
-        openProfileModal();
         return;
       }
       await finishLoginFlow({ attemptRestore: true, fromRestore: true });
       return;
     } catch (_) {
       clearSession();
+      resetSensitiveUiState();
       resetAdminState();
       switchScreen("gate");
     }

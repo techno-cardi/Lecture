@@ -194,6 +194,15 @@ textarea,
   font-size: 0.9rem;
   text-align: center;
 }
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 92px;
+  font-weight: 700;
+  text-align: center;
+}
 .header-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .book-list, .admin-books-list { display: grid; gap: 14px; }
 .book-card, .admin-book-card {
@@ -538,6 +547,34 @@ textarea,
   margin: 0;
   text-align: left;
 }
+.profile-modal-panel {
+  max-width: 460px;
+  gap: 14px;
+}
+.profile-modal-grid {
+  display: grid;
+  gap: 12px;
+}
+.profile-field {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--text);
+}
+.profile-field span {
+  font-size: 0.96rem;
+}
+.profile-field input {
+  width: 100%;
+}
+.profile-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.profile-modal-actions .save-status {
+  min-height: 20px;
+}
 .font-modal-controls {
   display: flex;
   align-items: center;
@@ -576,6 +613,8 @@ textarea,
   align-items: center;
   justify-content: center;
   gap: 12px;
+  padding: 0 18px;
+  text-align: center;
   background: rgba(15, 23, 42, 0.28);
   color: #fff;
   font-weight: 700;
