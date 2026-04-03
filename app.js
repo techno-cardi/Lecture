@@ -150,6 +150,12 @@ const state = {
   fallbackNoticeShownForPage: 0,
   showProgressBar: JSON.parse(localStorage.getItem(LS_PROGRESS_BAR_KEY) || "false"),
   progressMode: localStorage.getItem(LS_PROGRESS_MODE_KEY) || "percent",
+  swipeStartX: 0,
+  swipeStartY: 0,
+  swipeStartTime: 0,
+  pinchActive: false,
+  pinchDistance: 0,
+  pinchLastStep: 0,
 };
 
 // ════════════════════════════════════════
@@ -222,6 +228,7 @@ function switchScreen(name) {
   dom.reader.hidden = name !== "reader";
   dom.readerNav.hidden = name !== "reader";
   dom.topProgressBar.hidden = name !== "reader" || !state.showProgressBar;
+  setMenuButtonVisibility();
 }
 
 function toggleMenu(force) {
@@ -229,6 +236,57 @@ function toggleMenu(force) {
   dom.controlPanel.hidden = !shouldOpen;
   dom.menuBackdrop.hidden = !shouldOpen;
   dom.menuToggle.setAttribute("aria-expanded", String(shouldOpen));
+}
+
+function getSavedCurrentBookState() {
+  try {
+    const raw = localStorage.getItem(LS_CURRENT_BOOK_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.bookId) return null;
+    return {
+      bookId: String(data.bookId),
+      page: Math.max(1, Number(data.page) || 1),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function setMenuButtonVisibility() {
+  if (dom.reader.hidden) {
+    dom.menuToggle.classList.remove("menu-toggle-hidden");
+    return;
+  }
+  const nearTop = (dom.viewerShell.scrollTop || 0) <= 18;
+  const shouldHide = !nearTop && dom.controlPanel.hidden;
+  dom.menuToggle.classList.toggle("menu-toggle-hidden", shouldHide);
+}
+
+function scrollReaderToTop() {
+  dom.viewerShell.scrollTop = 0;
+  try {
+    dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
+  } catch (_) {
+    dom.viewerShell.scrollTo(0, 0);
+  }
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  window.scrollTo(0, 0);
+  window.requestAnimationFrame(() => {
+    dom.viewerShell.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+    setMenuButtonVisibility();
+  });
+}
+
+function distanceBetweenTouches(touches) {
+  if (!touches || touches.length < 2) return 0;
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx, dy);
 }
 
 // ════════════════════════════════════════
@@ -378,6 +436,9 @@ async function refreshBooks() {
   state.books = Array.isArray(response.books) ? response.books : [];
   renderBookList();
   renderAdminBooks();
+  if (state.adminUnlocked) {
+    dom.addUsersSection.hidden = false;
+  }
 }
 
 // ════════════════════════════════════════
@@ -826,8 +887,7 @@ async function renderPdfPage(pageNumber, { forceFit = false } = {}) {
   };
   await page.render(renderContext).promise;
   if (renderToken !== state.renderToken) return;
-  dom.viewerShell.scrollTop = 0;
-  dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
+  scrollReaderToTop();
 }
 
 async function renderCurrentPage({ forceFit = false } = {}) {
@@ -841,10 +901,7 @@ async function renderCurrentPage({ forceFit = false } = {}) {
     dom.pdfViewer.hidden = false;
     await renderPdfPage(state.currentPage, { forceFit });
   }
-  // Change 5: always scroll to top after any page render
-  dom.viewerShell.scrollTop = 0;
-  dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
-  window.scrollTo(0, 0);
+  scrollReaderToTop();
 }
 
 async function goToPage(pageNumber, { save = true } = {}) {
@@ -853,16 +910,14 @@ async function goToPage(pageNumber, { save = true } = {}) {
   if (next === state.currentPage && save) return;
   state.currentPage = next;
   await renderCurrentPage();
-  // Change 5: scroll to very top after page change
-  dom.viewerShell.scrollTop = 0;
-  window.scrollTo(0, 0);
+  scrollReaderToTop();
   if (save) {
     scheduleSave();
-    saveCurrentBookState(); // Change 8
+    saveCurrentBookState();
   }
 }
 
-async function openBook(book) {
+async function openBook(book, { localPage = null } = {}) {
   state.currentBook = book;
   state.currentPage = 1;
   state.totalPages = Number(book.totalPages) || 0;
@@ -903,12 +958,13 @@ async function openBook(book) {
     // PDF mode uniquement si pdfAllowed ET pas de JSON
     const pdfAllowed = !!book.pdfAllowed;
     state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : (pdfAllowed ? "pdf" : "text");
-    const restoredPage = progress?.currentPage ? Number(progress.currentPage) : 1;
+    const persistedPage = Number(localPage) || 0;
+    const serverPage = progress?.currentPage ? Number(progress.currentPage) : 0;
+    const restoredPage = Math.max(serverPage, persistedPage, 1);
     state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
     resetNoteEditor();
     await renderCurrentPage({ forceFit: true });
     setSaveStatus("Prêt");
-    // Change 8: persist current book state
     saveCurrentBookState();
   } finally {
     // Change 3: hide loading overlay
@@ -967,6 +1023,7 @@ async function unlockAdmin() {
     state.adminCode = code;
     dom.publishForm.hidden = false;
     dom.githubTestRow.hidden = false;
+    dom.addUsersSection.hidden = false;
     setPublishStatus("Module administrateur déverrouillé", true);
     saveSession();
     await refreshBooks();
@@ -1419,22 +1476,53 @@ async function handleLogin(event) {
 // SWIPE NAVIGATION
 // ════════════════════════════════════════
 function attachSwipeEvents() {
-  let startX = 0, startY = 0, startTime = 0;
-
   dom.viewerShell.addEventListener("touchstart", (e) => {
-    if (e.touches.length !== 1) return;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    startTime = Date.now();
+    if (e.touches.length >= 2) {
+      state.pinchActive = true;
+      state.pinchDistance = distanceBetweenTouches(e.touches);
+      state.pinchLastStep = state.pinchDistance;
+      return;
+    }
+    state.pinchActive = false;
+    state.pinchDistance = 0;
+    state.pinchLastStep = 0;
+    state.swipeStartX = e.touches[0]?.clientX || 0;
+    state.swipeStartY = e.touches[0]?.clientY || 0;
+    state.swipeStartTime = Date.now();
   }, { passive: true });
 
+  dom.viewerShell.addEventListener("touchmove", (e) => {
+    if (e.touches.length < 2) return;
+    const distance = distanceBetweenTouches(e.touches);
+    if (!distance) return;
+    if (!state.pinchActive) {
+      state.pinchActive = true;
+      state.pinchDistance = distance;
+      state.pinchLastStep = distance;
+      return;
+    }
+    const delta = distance - state.pinchLastStep;
+    if (Math.abs(delta) >= 22) {
+      updateFontOrZoom(delta > 0 ? 1 : -1);
+      state.pinchLastStep = distance;
+    }
+    e.preventDefault();
+  }, { passive: false });
+
   dom.viewerShell.addEventListener("touchend", (e) => {
+    if (state.pinchActive) {
+      if (e.touches.length < 2) {
+        state.pinchActive = false;
+        state.pinchDistance = 0;
+        state.pinchLastStep = 0;
+      }
+      return;
+    }
     if (!e.changedTouches.length) return;
-    if (!dom.controlPanel.hidden) return; // menu ouvert → pas de swipe
-    const dx = e.changedTouches[0].clientX - startX;
-    const dy = e.changedTouches[0].clientY - startY;
-    const dt = Date.now() - startTime;
-    // Ignorer si trop court, trop lent, ou principalement vertical
+    if (!dom.controlPanel.hidden) return;
+    const dx = e.changedTouches[0].clientX - state.swipeStartX;
+    const dy = e.changedTouches[0].clientY - state.swipeStartY;
+    const dt = Date.now() - state.swipeStartTime;
     if (Math.abs(dx) < 45 || Math.abs(dy) > Math.abs(dx) * 0.85 || dt > 650) return;
     if (dx < 0) goToPage(state.currentPage + 1);
     else goToPage(state.currentPage - 1);
@@ -1527,6 +1615,7 @@ function attachEvents() {
   // Lecteur — retour
   dom.backToLibraryBtn.addEventListener("click", async () => {
     await saveProgress({ immediate: true });
+    toggleMenu(false);
     switchScreen("library");
   });
 
@@ -1592,6 +1681,7 @@ function attachEvents() {
   // Modal taille du texte
   dom.fontSizeBtn.addEventListener("click", () => {
     if (state.mode === "pdf") { showToast("La taille du texte s'applique au mode texte uniquement."); return; }
+    toggleMenu(false);
     dom.fontModal.hidden = false;
   });
   dom.fontModalMinus.addEventListener("click", () => updateFontOrZoom(-1));
@@ -1615,6 +1705,18 @@ function attachEvents() {
   dom.testGithubBtn.addEventListener("click", testGithubConnection);
   dom.publishForm.addEventListener("submit", publishBook);
   dom.reloadAdminBooksBtn.addEventListener("click", refreshBooks);
+  dom.addUsersBtn.addEventListener("click", addUsersInBulk);
+  dom.editBookSaveBtn.addEventListener("click", saveEditBook);
+  dom.editBookCancelBtn.addEventListener("click", () => {
+    dom.editBookModal.hidden = true;
+    dom.editBookStatus.textContent = "";
+  });
+  dom.editBookModal.addEventListener("click", (e) => {
+    if (e.target === dom.editBookModal) {
+      dom.editBookModal.hidden = true;
+      dom.editBookStatus.textContent = "";
+    }
+  });
   dom.bookTitleInput.addEventListener("input", rebuildAdminBookIdFromTitle);
   dom.bookIdInput.addEventListener("input", () => {
     dom.bookIdInput.dataset.lockedManual = dom.bookIdInput.value.trim() ? "1" : "";
@@ -1633,9 +1735,11 @@ function attachEvents() {
     const openBtn = e.target.closest("[data-open-book]");
     const toggleBtn = e.target.closest("[data-toggle-book]");
     const pdfBtn = e.target.closest("[data-toggle-pdf]");
+    const editBtn = e.target.closest("[data-edit-book]");
     if (openBtn) { const b = getBookById(openBtn.dataset.openBook); if (b) await openBook(b); return; }
     if (toggleBtn) { await toggleBookPublished(toggleBtn.dataset.toggleBook); return; }
-    if (pdfBtn) { await toggleBookPdfAllowed(pdfBtn.dataset.togglePdf); }
+    if (pdfBtn) { await toggleBookPdfAllowed(pdfBtn.dataset.togglePdf); return; }
+    if (editBtn) { openEditBookModal(editBtn.dataset.editBook); }
   });
 
   // Délégations — signets
@@ -1656,6 +1760,10 @@ function attachEvents() {
 
   // Swipe navigation
   attachSwipeEvents();
+
+  dom.viewerShell.addEventListener("scroll", () => {
+    setMenuButtonVisibility();
+  }, { passive: true });
 
   // Resize / orientation
   window.addEventListener("resize", () => {
@@ -1681,7 +1789,11 @@ function attachEvents() {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
     if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); goToPage(state.currentPage + 1); }
     if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); goToPage(state.currentPage - 1); }
-    if (e.key === "Escape") { if (!dom.fontModal.hidden) { dom.fontModal.hidden = true; return; } toggleMenu(false); }
+    if (e.key === "Escape") {
+      if (!dom.fontModal.hidden) { dom.fontModal.hidden = true; return; }
+      if (!dom.editBookModal.hidden) { dom.editBookModal.hidden = true; return; }
+      toggleMenu(false);
+    }
   });
 }
 
@@ -1707,13 +1819,20 @@ async function init() {
     if (state.adminUnlocked) {
       dom.publishForm.hidden = false;
       dom.githubTestRow.hidden = false;
+      dom.addUsersSection.hidden = false;
       setPublishStatus("Module administrateur déverrouillé", true);
     }
     switchScreen("library");
     try {
       await refreshBooks();
+      const savedBookState = getSavedCurrentBookState();
+      if (savedBookState) {
+        const savedBook = getBookById(savedBookState.bookId);
+        if (savedBook) {
+          await openBook(savedBook, { localPage: savedBookState.page });
+        }
+      }
     } catch (_) {
-      // Si le refresh échoue (session expirée côté Apps Script), retour au gate
       clearSession();
       switchScreen("gate");
     }
@@ -1723,6 +1842,7 @@ async function init() {
   switchScreen("gate");
   toggleMenu(false);
   rebuildReadingSurfaceClasses();
+  setMenuButtonVisibility();
   setSaveStatus("En attente");
 }
 

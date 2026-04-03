@@ -338,6 +338,12 @@ textarea,
 .menu-toggle {
   top: calc(var(--safe-top) + 10px);
   right: calc(var(--safe-right) + 10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.menu-toggle-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-8px);
 }
 .back-button {
   top: calc(var(--safe-top) + 10px);
@@ -455,6 +461,14 @@ textarea,
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
+#fontModal.font-modal-overlay {
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: calc(var(--safe-top) + 58px) 12px calc(var(--safe-bottom) + var(--nav-h) + 12px);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .font-modal-panel {
   width: 100%;
   max-width: 420px;
@@ -501,6 +515,29 @@ textarea,
 }
 .font-modal-hint { margin: 0; color: var(--muted); font-size: 0.88rem; text-align: center; }
 .font-modal-close-btn { width: 100%; }
+
+#fontModal .font-modal-panel {
+  width: min(320px, calc(100vw - 24px));
+  max-width: 320px;
+  border-radius: 20px;
+  padding: 16px 16px 14px;
+  gap: 12px;
+  background: rgba(248, 250, 252, 0.96);
+}
+#fontModal .font-modal-controls {
+  gap: 12px;
+}
+#fontModal .font-modal-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+#fontModal .font-modal-hint {
+  font-size: 0.82rem;
+}
+#fontModal .font-modal-close-btn {
+  min-height: 42px;
+}
 
 /* ════════════════════════════════════════
    THÈMES
@@ -573,6 +610,10 @@ textarea,
 ════════════════════════════════════════ */
 @media (min-width: 760px) {
   .publish-grid { grid-template-columns: 1fr 1fr; }
+  #fontModal.font-modal-overlay {
+    padding-top: calc(var(--safe-top) + 16px);
+    padding-right: 16px;
+  }
   .admin-lock-row { grid-template-columns: 1fr auto; }
   .book-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-books-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
