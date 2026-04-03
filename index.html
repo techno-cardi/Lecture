@@ -6,15 +6,23 @@
   <meta name="theme-color" content="#0f172a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Lecteur scolaire">
+  <meta name="apple-mobile-web-app-title" content="Lecteur">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>Lecteur scolaire</title>
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="apple-touch-icon" href="./assets/icons/icon-180.png">
-  <link rel="icon" href="./favicon.ico" sizes="any">
+  <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <div class="app-shell">
+
+    <!-- ═══════════════ BANNIÈRE INSTALLATION PWA ═══════════════ -->
+    <div id="installBanner" class="install-banner" hidden>
+      <span id="installBannerText">Installez l'application sur votre écran d'accueil</span>
+      <button id="installBannerBtn" class="install-banner-action" type="button">Installer</button>
+      <button id="installBannerDismiss" class="install-banner-dismiss" type="button" aria-label="Fermer">✕</button>
+    </div>
+
+    <!-- ═══════════════ ÉCRAN DE CONNEXION ═══════════════ -->
     <section id="gate" class="gate-screen panel">
       <h1 class="app-title">Lecture du document</h1>
       <p class="app-subtitle">Entre ton courriel scolaire pour accéder à la bibliothèque.</p>
@@ -33,16 +41,16 @@
           placeholder="prenom.nom@educ.cscapitale.qc.ca"
           required
         >
-        <label class="check-row remember-row">
-          <input id="rememberMeInput" name="rememberMe" type="checkbox" checked>
-          <span>Se souvenir de moi sur cet appareil</span>
+        <label class="remember-me-label">
+          <input id="rememberMeInput" type="checkbox" autocomplete="off">
+          <span>Se souvenir de moi</span>
         </label>
         <button id="loginBtn" type="submit">Accéder</button>
       </form>
 
-      <div id="gateLoading" class="gate-loading" hidden>
+      <div id="gateBusy" class="gate-busy" hidden>
         <span class="spinner" aria-hidden="true"></span>
-        <span id="gateLoadingText">Validation de votre identité, veuillez patienter quelques instants.</span>
+        <span id="gateBusyText">Validation en cours, veuillez patienter.</span>
       </div>
 
       <p id="gateMessage" class="gate-message" aria-live="polite"></p>
@@ -52,6 +60,7 @@
       </div>
     </section>
 
+    <!-- ═══════════════ BIBLIOTHÈQUE ═══════════════ -->
     <section id="library" class="library-screen" hidden>
       <header class="library-header">
         <div>
@@ -61,31 +70,37 @@
         </div>
         <div class="header-actions">
           <button id="refreshBooksBtn" class="secondary-btn" type="button">Actualiser</button>
-          <button id="logoutBtn" class="ghost-btn" type="button">Déconnexion</button>
+          <button id="logoutBtn" class="ghost-btn" type="button">Changer de courriel</button>
         </div>
       </header>
 
       <section id="bookList" class="book-list" aria-live="polite"></section>
 
+      <!-- ═══ PANNEAU ADMINISTRATEUR ═══ -->
       <section id="adminPanel" class="admin-panel panel" hidden>
         <div class="admin-head">
           <div>
             <p class="eyebrow">Administration</p>
             <h3>Préparer et publier un livre</h3>
-            <p class="admin-help">La conversion du PDF se fait ici, en amont. Les élèves n'ont rien à convertir.</p>
+            <p class="admin-help">La conversion PDF vers JSON se fait ici, une seule fois, avant la lecture des élèves.</p>
           </div>
         </div>
 
         <div class="admin-lock-row">
-          <input id="adminCodeInput" type="password" autocomplete="current-password" placeholder="Code administrateur">
+          <input id="adminCodeInput" type="password" autocomplete="off" placeholder="Code administrateur">
           <button id="unlockAdminBtn" class="secondary-btn" type="button">Déverrouiller</button>
+        </div>
+
+        <div id="githubTestRow" class="github-test-row" hidden>
+          <button id="testGithubBtn" class="ghost-btn" type="button">Tester la connexion GitHub</button>
+          <span id="githubTestStatus" class="save-status"></span>
         </div>
 
         <form id="publishForm" class="publish-form" hidden>
           <div class="publish-grid">
             <div>
               <label for="bookTitleInput">Titre du livre</label>
-              <input id="bookTitleInput" type="text" required placeholder="Ex. Le poids de l’influence">
+              <input id="bookTitleInput" type="text" required placeholder="Ex. Le poids de l'influence">
             </div>
             <div>
               <label for="bookIdInput">Identifiant du livre</label>
@@ -107,23 +122,19 @@
           <div class="publish-grid">
             <div>
               <label for="bookCoverInput">Image de couverture</label>
-              <input id="bookCoverInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
+              <input id="bookCoverInput" type="file" accept="image/png,image/jpeg,image/webp,image/jpg">
             </div>
-            <div class="admin-note-box">
-              <strong>Astuce</strong>
-              <span>La couverture sera envoyée dans GitHub avec le PDF et le JSON.</span>
+            <div>
+              <label for="publishNowInput" class="checkbox-label">
+                <input id="publishNowInput" type="checkbox" checked>
+                <span>Publier immédiatement pour les élèves</span>
+              </label>
             </div>
           </div>
 
-          <label class="check-row">
-            <input id="allowPdfModeInput" type="checkbox">
-            <span>Autoriser les élèves à afficher le mode PDF</span>
-          </label>
-
-          <label class="check-row">
-            <input id="publishNowInput" type="checkbox" checked>
-            <span>Publier immédiatement pour les élèves</span>
-          </label>
+          <div class="publish-size-warning" id="publishSizeWarning" hidden>
+            ⚠️ Fichier volumineux — la publication peut prendre plusieurs minutes.
+          </div>
 
           <div class="publish-actions">
             <button id="publishBtn" class="nav-btn" type="submit">Convertir et publier</button>
@@ -142,19 +153,22 @@
       </section>
     </section>
 
+    <!-- ═══════════════ LECTEUR ═══════════════ -->
     <section id="reader" class="reader-screen" hidden>
+
+      <!-- Barre de progression supérieure -->
+      <div id="topProgressBar" class="top-progress-bar" hidden>
+        <div id="topProgressFill" class="top-progress-fill"></div>
+        <button id="topProgressLabel" class="top-progress-label" type="button" title="Cliquer pour changer l'affichage">0 %</button>
+      </div>
+
+      <!-- Boutons flottants haut -->
       <button id="backToLibraryBtn" class="back-button" type="button" title="Retour à la bibliothèque">←</button>
       <button id="menuToggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" title="Ouvrir le menu">☰</button>
 
-      <div id="topProgressWrap" class="top-progress-wrap" hidden>
-        <div class="top-progress-track" aria-hidden="true">
-          <div id="topProgressBar" class="top-progress-bar"></div>
-        </div>
-        <button id="topProgressText" class="top-progress-text" type="button">0 %</button>
-      </div>
-
       <div id="menuBackdrop" class="menu-backdrop" hidden></div>
 
+      <!-- Menu latéral -->
       <aside id="controlPanel" class="control-panel" hidden>
         <div class="panel-header">
           <div>
@@ -167,7 +181,7 @@
         <div class="progress-block">
           <div class="progress-meta">
             <span>Progression</span>
-            <button id="progressText" class="progress-text-btn" type="button">0 %</button>
+            <span id="progressText">0 %</span>
           </div>
           <div class="progress-track" aria-hidden="true">
             <div id="progressBar" class="progress-bar"></div>
@@ -186,19 +200,14 @@
         </div>
 
         <div class="panel-grid compact-grid">
-          <button id="modeToggleBtn" class="secondary-btn" type="button" hidden>Mode PDF</button>
+          <button id="modeToggleBtn" class="secondary-btn" type="button">Mode PDF</button>
           <button id="fitBtn" class="secondary-btn" type="button">Ajuster</button>
-          <button id="textSizeBtn" class="secondary-btn" type="button">Changer la taille du texte</button>
+          <button id="fontSizeBtn" class="secondary-btn" type="button">Taille du texte</button>
+          <button id="progressBarToggleBtn" class="secondary-btn" type="button">Barre de progression</button>
           <button id="bookmarkBtn" class="secondary-btn" type="button">Ajouter un signet</button>
-          <button id="saveBtn" class="secondary-btn" type="button">Sauvegarder ma progression</button>
+          <button id="saveBtn" class="secondary-btn" type="button">Sauvegarder</button>
           <button id="themeBtn" class="secondary-btn" type="button">Mode nuit</button>
-          <button id="installAppBtn" class="secondary-btn" type="button">Ajouter à l’écran d’accueil</button>
         </div>
-
-        <label class="check-row progress-option-row">
-          <input id="showTopProgressInput" type="checkbox">
-          <span>Afficher la barre de progression en haut de chaque page</span>
-        </label>
 
         <div class="bookmarks-block">
           <div class="bookmarks-head">
@@ -208,12 +217,14 @@
         </div>
 
         <div class="notes-block">
-          <label for="pageNoteInput" class="notes-label">Notes pour cette page</label>
-          <textarea id="pageNoteInput" rows="4" placeholder="Écris une note personnelle ici."></textarea>
+          <label for="pageNoteInput" class="notes-label">Note pour cette page</label>
+          <textarea id="pageNoteInput" rows="4" maxlength="1200" placeholder="Écris une note personnelle ici."></textarea>
           <div class="notes-actions">
             <button id="saveNoteBtn" class="secondary-btn" type="button">Enregistrer la note</button>
+            <button id="newNoteBtn" class="ghost-btn" type="button">Nouvelle note</button>
             <span id="noteStatus" class="save-status"></span>
           </div>
+          <div id="notesList" class="notes-list"></div>
         </div>
 
         <div class="status-row">
@@ -221,6 +232,7 @@
         </div>
       </aside>
 
+      <!-- Contenu principal -->
       <main id="viewerShell" class="viewer-shell" tabindex="0" aria-label="Lecteur">
         <div id="readingSurface" class="reading-surface mode-text theme-paper font-medium">
           <div id="textViewer" class="text-viewer"></div>
@@ -230,43 +242,33 @@
         </div>
       </main>
 
-      <div id="bottomNav" class="bottom-nav" hidden>
-        <button id="bottomPrevBtn" class="bottom-nav-btn" type="button" aria-label="Page précédente">‹</button>
-        <button id="bottomPageBtn" class="bottom-page-pill" type="button">1 / 1</button>
-        <button id="bottomNextBtn" class="bottom-nav-btn" type="button" aria-label="Page suivante">›</button>
-      </div>
+      <!-- Navigation inférieure fixe -->
+      <nav id="readerNav" class="reader-nav-bottom" hidden aria-label="Navigation entre pages">
+        <button id="navPrevBtn" class="nav-bottom-arrow" type="button" aria-label="Page précédente" disabled>‹</button>
+        <button id="navPageBtn" class="nav-bottom-page" type="button" aria-label="Affichage de la page">
+          <span id="navPageText">— / —</span>
+        </button>
+        <button id="navNextBtn" class="nav-bottom-arrow" type="button" aria-label="Page suivante" disabled>›</button>
+      </nav>
 
-      <div id="loadingOverlay" class="loading-overlay" hidden>
-        <div class="loading-card">
-          <span class="spinner" aria-hidden="true"></span>
-          <p id="loadingOverlayText">Livre en cours de chargement, veuillez patienter.</p>
-        </div>
-      </div>
-
-      <div id="modalBackdrop" class="modal-backdrop" hidden></div>
-
-      <section id="textSizeModal" class="floating-modal" hidden aria-labelledby="textSizeModalTitle">
-        <div class="modal-head">
-          <h3 id="textSizeModalTitle">Changer la taille du texte</h3>
-          <button id="closeTextSizeModalBtn" class="icon-btn" type="button" title="Fermer">✕</button>
-        </div>
-        <p id="textSizeModalDesc" class="modal-desc">Les changements s’appliquent immédiatement.</p>
-        <div class="panel-grid primary-grid">
-          <button id="decreaseTextBtn" class="secondary-btn" type="button">Réduire le texte</button>
-          <button id="increaseTextBtn" class="secondary-btn" type="button">Agrandir le texte</button>
-        </div>
-      </section>
-
-      <section id="installModal" class="floating-modal" hidden aria-labelledby="installModalTitle">
-        <div class="modal-head">
-          <h3 id="installModalTitle">Ajouter à l’écran d’accueil</h3>
-          <button id="closeInstallModalBtn" class="icon-btn" type="button" title="Fermer">✕</button>
-        </div>
-        <div id="installModalContent" class="modal-desc"></div>
-      </section>
-
+      <!-- Toast -->
       <div id="toast" class="toast" hidden></div>
     </section>
+
+    <!-- Modal taille du texte -->
+    <div id="fontModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel">
+        <div class="font-modal-title">Taille du texte</div>
+        <div class="font-modal-controls">
+          <button id="fontModalMinus" class="font-modal-btn font-modal-minus" type="button" aria-label="Réduire le texte">A−</button>
+          <div id="fontModalPreview" class="font-modal-preview" aria-hidden="true">Aa</div>
+          <button id="fontModalPlus" class="font-modal-btn font-modal-plus" type="button" aria-label="Agrandir le texte">A+</button>
+        </div>
+        <p class="font-modal-hint">Le changement est visible en temps réel.</p>
+        <button id="fontModalClose" class="nav-btn font-modal-close-btn" type="button">Fermer</button>
+      </div>
+    </div>
+
   </div>
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
