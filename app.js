@@ -1191,56 +1191,54 @@ async function convertPdfFileToJson(file, metadata) {
   };
 }
 
-async function postAdminAction(formData, options = {}) {
-  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 240000;
-  const timeoutMessage = options.timeoutMessage || "Délai dépassé lors de la publication.";
+async function postAdminAction(formData) {
   return new Promise((resolve, reject) => {
     const requestId = `admin_post_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const iframe = document.createElement("iframe");
     const form = document.createElement("form");
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      reject(new Error(timeoutMessage));
-    }, timeoutMs);
+    let cleaned = false;
 
     function cleanup() {
-      window.clearTimeout(timeout);
-      window.removeEventListener("message", onMessage);
-      iframe.remove();
-      form.remove();
+      if (cleaned) return;
+      cleaned = true;
+      window.setTimeout(() => {
+        try { iframe.remove(); } catch (error) {}
+        try { form.remove(); } catch (error) {}
+      }, 1200);
     }
 
-    function onMessage(event) {
-      const data = event && event.data;
-      if (!data || data.requestId !== requestId) return;
+    try {
+      iframe.name = requestId;
+      iframe.hidden = true;
+      form.hidden = true;
+      form.method = "POST";
+      form.action = CONFIG.appsScriptUrl;
+      form.target = requestId;
+
+      const entries = Array.from(formData.entries());
+      entries.push(["transport", "iframe"]);
+      entries.push(["requestId", requestId]);
+      entries.push(["origin", window.location.origin || "*"]);
+
+      entries.forEach(([key, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = key;
+        input.value = String(value ?? "");
+        form.appendChild(input);
+      });
+
+      document.body.appendChild(iframe);
+      document.body.appendChild(form);
+      form.submit();
+      window.setTimeout(() => {
+        cleanup();
+        resolve({ ok: true, requestId });
+      }, 150);
+    } catch (error) {
       cleanup();
-      resolve(data.payload || { ok: false, message: "Réponse vide du service." });
+      reject(error);
     }
-
-    iframe.name = requestId;
-    iframe.hidden = true;
-    form.hidden = true;
-    form.method = "POST";
-    form.action = CONFIG.appsScriptUrl;
-    form.target = requestId;
-
-    const entries = Array.from(formData.entries());
-    entries.push(["transport", "iframe"]);
-    entries.push(["requestId", requestId]);
-    entries.push(["origin", window.location.origin || "*"]);
-
-    entries.forEach(([key, value]) => {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = key;
-      input.value = String(value ?? "");
-      form.appendChild(input);
-    });
-
-    window.addEventListener("message", onMessage);
-    document.body.appendChild(iframe);
-    document.body.appendChild(form);
-    form.submit();
   });
 }
 
@@ -1259,8 +1257,76 @@ function buildAdminFormData(action, payload = {}) {
   return formData;
 }
 
-async function adminPost(action, payload = {}, options = {}) {
-  return postAdminAction(buildAdminFormData(action, payload), options);
+async function adminPost(action, payload = {}) {
+  return postAdminAction(buildAdminFormData(action, payload));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function waitForUploadSession(uploadId, { timeoutMs = 60000, timeoutMessage = "Délai dépassé.", accept } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await jsonp("getUploadSessionStatus", {
+      email: state.email,
+      adminCode: state.adminCode,
+      uploadId
+    }).catch(() => null);
+
+    if (response?.ok && response.session) {
+      const session = response.session;
+      if (String(session.status || "").startsWith("error")) {
+        throw new Error(session.lastError || response.message || "Erreur serveur pendant la publication.");
+      }
+      if (!accept || accept(session, response)) return session;
+    }
+    await sleep(450);
+  }
+  throw new Error(timeoutMessage);
+}
+
+async function waitForUploadedChunk(uploadId, fileType, chunkIndex, expectedLength, { timeoutMs = 90000, timeoutMessage = "Délai dépassé pendant le téléversement." } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await jsonp("getUploadedChunkStatus", {
+      email: state.email,
+      adminCode: state.adminCode,
+      uploadId,
+      fileType,
+      chunkIndex
+    }).catch(() => null);
+
+    if (response?.ok && response.exists && Number(response.acknowledgedChars || 0) === Number(expectedLength || 0)) {
+      return response;
+    }
+
+    const sessionResponse = await jsonp("getUploadSessionStatus", {
+      email: state.email,
+      adminCode: state.adminCode,
+      uploadId
+    }).catch(() => null);
+    if (sessionResponse?.ok && sessionResponse.session && String(sessionResponse.session.status || "").startsWith("error")) {
+      throw new Error(sessionResponse.session.lastError || "Erreur serveur pendant le téléversement.");
+    }
+
+    await sleep(350);
+  }
+  throw new Error(timeoutMessage);
+}
+
+async function waitForBookInAdminLibrary(bookId, { timeoutMs = 120000, timeoutMessage = "Délai dépassé pendant l’enregistrement du livre." } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const response = await jsonp("getBookAdmin", {
+      email: state.email,
+      adminCode: state.adminCode,
+      bookId
+    }).catch(() => null);
+    if (response?.ok && response.book) return response.book;
+    await sleep(500);
+  }
+  throw new Error(timeoutMessage);
 }
 
 function splitIntoUploadChunks(value, chunkSize = ADMIN_UPLOAD_CHUNK_SIZE) {
@@ -1295,20 +1361,18 @@ async function uploadFileInChunks({ uploadId, fileType, content, label, totalByt
       detail: `${label} - envoi du bloc ${index + 1} / ${chunks.length}...`
     });
 
-    const response = await adminPost("uploadBookChunk", {
+    await adminPost("uploadBookChunk", {
       uploadId,
       fileType,
       chunkIndex: index,
       totalChunks: chunks.length,
       dataChunk: chunk
-    }, {
+    });
+
+    await waitForUploadedChunk(uploadId, fileType, index, chunk.length, {
       timeoutMs: 90000,
       timeoutMessage: `Délai dépassé pendant l’envoi du bloc ${index + 1} / ${chunks.length} du ${label}.`
     });
-
-    if (!response?.ok) {
-      throw new Error(response?.details || response?.message || `Échec de l’envoi du bloc ${index + 1} du ${label}.`);
-    }
 
     confirmedBytes += chunk.length;
     setPublishProgressUi({
@@ -1331,29 +1395,38 @@ async function commitUploadedFile({ uploadId, fileType, label, percent }) {
     detail: `Assemblage et envoi de ${label} vers GitHub...`
   });
 
-  const response = await adminPost("commitUploadedBookFile", {
+  await adminPost("commitUploadedBookFile", {
     uploadId,
     fileType
-  }, {
-    timeoutMs: 180000,
-    timeoutMessage: `Délai dépassé pendant la publication de ${label} vers GitHub.`
   });
 
-  if (!response?.ok) {
-    throw new Error(response?.details || response?.message || `Échec de la publication de ${label}.`);
-  }
+  const session = await waitForUploadSession(uploadId, {
+    timeoutMs: 180000,
+    timeoutMessage: `Délai dépassé pendant la publication de ${label} vers GitHub.`,
+    accept(currentSession) {
+      if (fileType === "json") return !!currentSession.jsonPath;
+      if (fileType === "pdf") return !!currentSession.pdfPath;
+      if (fileType === "cover") return !!currentSession.coverPath;
+      return false;
+    }
+  });
 
-  return response;
+  return {
+    ok: true,
+    fileType,
+    path: fileType === "json" ? session.jsonPath : fileType === "pdf" ? session.pdfPath : session.coverPath
+  };
 }
 
 async function abortChunkedPublish(uploadId) {
   if (!uploadId) return;
   try {
-    await adminPost("abortChunkedPublish", { uploadId }, { timeoutMs: 45000, timeoutMessage: "" });
+    await adminPost("abortChunkedPublish", { uploadId });
   } catch (error) {
     console.warn("Nettoyage de publication impossible", error);
   }
 }
+
 
 async function publishBook(event) {
   event.preventDefault();
@@ -1384,15 +1457,19 @@ async function publishBook(event) {
 
   try {
     const jsonDoc = await convertPdfFileToJson(file, { title, bookId, author });
+    setPublishProgressUi({ visible: true, percent: 8, stage: "Préparation", detail: "Construction de la version texte du livre..." });
+    const jsonPayload = JSON.stringify(jsonDoc);
+    const jsonBase64 = utf8ToBase64(jsonPayload);
+
+    setPublishProgressUi({ visible: true, percent: 9, stage: "Préparation", detail: "Lecture du PDF source..." });
     const arrayBuffer = await file.arrayBuffer();
     const pdfBase64 = arrayBufferToBase64(arrayBuffer);
-    const jsonBase64 = utf8ToBase64(JSON.stringify(jsonDoc));
 
     let coverBase64 = "";
     let coverExtension = "";
     const coverFile = dom.bookCoverInput.files?.[0];
     if (coverFile) {
-      setPublishProgressUi({ visible: true, percent: 8, stage: "Préparation", detail: "Préparation de l’image de couverture..." });
+      setPublishProgressUi({ visible: true, percent: 10, stage: "Préparation", detail: "Préparation de l’image de couverture..." });
       coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
       coverExtension = (coverFile.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
     }
@@ -1401,7 +1478,9 @@ async function publishBook(event) {
     const totalUploadBytes = jsonBase64.length + pdfBase64.length + coverBase64.length;
     let confirmedBytes = 0;
 
-    const initResponse = await adminPost("initChunkedPublish", {
+    setPublishStatus("Initialisation de la publication...");
+    setPublishProgressUi({ visible: true, percent: 12, stage: "Initialisation serveur", detail: "Création de la session de publication..." });
+    await adminPost("initChunkedPublish", {
       uploadId,
       bookId,
       title,
@@ -1411,12 +1490,15 @@ async function publishBook(event) {
       sourceFileName: file.name,
       totalPages: String(jsonDoc.totalPages),
       coverExtension
-    }, {
-      timeoutMs: 60000,
-      timeoutMessage: "Délai dépassé pendant l’initialisation de la publication."
     });
 
-    if (!initResponse?.ok) throw new Error(initResponse?.details || initResponse?.message || "Impossible d’initialiser la publication.");
+    await waitForUploadSession(uploadId, {
+      timeoutMs: 60000,
+      timeoutMessage: "Délai dépassé pendant l’initialisation de la publication.",
+      accept(session) {
+        return session.status === "initialized" || session.status === "uploading_json" || session.status === "uploaded_json";
+      }
+    });
 
     confirmedBytes = await uploadFileInChunks({ uploadId, fileType: "json", content: jsonBase64, label: "la version texte", totalBytes: totalUploadBytes, confirmedBytes });
     const jsonUpload = await commitUploadedFile({ uploadId, fileType: "json", label: "la version texte", percent: computeUploadPercent(confirmedBytes, totalUploadBytes) });
@@ -1433,19 +1515,18 @@ async function publishBook(event) {
     setPublishStatus("Enregistrement du livre...");
     setPublishProgressUi({
       visible: true,
-      percent: 100,
+      percent: 99,
       stage: "Finalisation",
       detail: "Enregistrement du livre dans la bibliothèque..."
     });
 
-    const finalizeResponse = await adminPost("finalizeChunkedPublish", { uploadId }, {
+    await adminPost("finalizeChunkedPublish", { uploadId });
+    const publishedBook = await waitForBookInAdminLibrary(bookId, {
       timeoutMs: 120000,
       timeoutMessage: "Délai dépassé pendant l’enregistrement du livre."
     });
 
-    if (!finalizeResponse?.ok) throw new Error(finalizeResponse?.details || finalizeResponse?.message || "Impossible d’enregistrer le livre.");
-
-    if (finalizeResponse.book) mergeBookInState(finalizeResponse.book);
+    if (publishedBook) mergeBookInState(publishedBook);
     renderBookList();
     renderAdminBooks();
     dom.publishForm.reset();
