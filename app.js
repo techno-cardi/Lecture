@@ -4,7 +4,7 @@ const CONFIG = window.READER_CONFIG || {};
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${CONFIG.pdfJsVersion || "5.6.205"}/build/pdf.worker.min.mjs`;
 
 const FONT_CLASSES = ["font-small", "font-medium", "font-large", "font-xlarge"];
-const SESSION_KEY = "readerSession_v1";
+const SESSION_KEY = "readerSession_v2";
 const LS_EMAIL_KEY = "rememberedEmail";
 const LS_PROGRESS_BAR_KEY = "showProgressBar";
 const LS_PROGRESS_MODE_KEY = "progressMode";
@@ -12,6 +12,7 @@ const LS_FONT_KEY = "fontIndex";
 const LS_THEME_KEY = "readerTheme";
 const LS_INSTALL_KEY = "installBannerDismissed";
 const LS_IOS_INSTALL_KEY = "iosInstallDismissed";
+const LS_CURRENT_BOOK_KEY = "currentBookState_v1";
 
 // ════════════════════════════════════════
 // DOM REFS
@@ -56,6 +57,22 @@ const dom = {
   publishSizeWarning: document.getElementById("publishSizeWarning"),
   reloadAdminBooksBtn: document.getElementById("reloadAdminBooksBtn"),
   adminBooksList: document.getElementById("adminBooksList"),
+
+  bookLoadingOverlay: document.getElementById("bookLoadingOverlay"),
+
+  addUsersSection: document.getElementById("addUsersSection"),
+  addUsersTextarea: document.getElementById("addUsersTextarea"),
+  addUsersBtn: document.getElementById("addUsersBtn"),
+  addUsersStatus: document.getElementById("addUsersStatus"),
+
+  editBookModal: document.getElementById("editBookModal"),
+  editBookTitle: document.getElementById("editBookTitle"),
+  editBookAuthor: document.getElementById("editBookAuthor"),
+  editBookDescription: document.getElementById("editBookDescription"),
+  editBookId: document.getElementById("editBookId"),
+  editBookSaveBtn: document.getElementById("editBookSaveBtn"),
+  editBookCancelBtn: document.getElementById("editBookCancelBtn"),
+  editBookStatus: document.getElementById("editBookStatus"),
 
   reader: document.getElementById("reader"),
   topProgressBar: document.getElementById("topProgressBar"),
@@ -220,22 +237,23 @@ function toggleMenu(force) {
 function saveSession() {
   if (!state.email) return;
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
       email: state.email,
       isAdminCandidate: state.isAdminCandidate,
       adminUnlocked: state.adminUnlocked,
       adminCode: state.adminCode,
     }));
-  } catch (_) { /* sessionStorage peut être désactivé */ }
+  } catch (_) { /* localStorage peut être désactivé */ }
 }
 
 function clearSession() {
-  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
+  try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+  try { localStorage.removeItem(LS_CURRENT_BOOK_KEY); } catch (_) {}
 }
 
 function restoreSession() {
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return false;
     const data = JSON.parse(raw);
     if (!data?.email) return false;
@@ -247,6 +265,21 @@ function restoreSession() {
   } catch (_) {
     return false;
   }
+}
+
+// Change 8: Save/restore current book and page across reloads
+function saveCurrentBookState() {
+  if (!state.currentBook) return;
+  try {
+    localStorage.setItem(LS_CURRENT_BOOK_KEY, JSON.stringify({
+      bookId: state.currentBook.bookId,
+      page: state.currentPage,
+    }));
+  } catch (_) {}
+}
+
+function clearCurrentBookState() {
+  try { localStorage.removeItem(LS_CURRENT_BOOK_KEY); } catch (_) {}
 }
 
 // ════════════════════════════════════════
@@ -611,6 +644,7 @@ function renderAdminBooks() {
           <button class="secondary-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
           <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
           <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.pdfAllowed ? "PDF : OUI" : "PDF : NON"}</button>
+          <button class="ghost-btn" type="button" data-edit-book="${escapeHtml(book.bookId)}">Modifier</button>
         </div>
       </div>
     </article>
@@ -792,6 +826,7 @@ async function renderPdfPage(pageNumber, { forceFit = false } = {}) {
   };
   await page.render(renderContext).promise;
   if (renderToken !== state.renderToken) return;
+  dom.viewerShell.scrollTop = 0;
   dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
 }
 
@@ -806,7 +841,10 @@ async function renderCurrentPage({ forceFit = false } = {}) {
     dom.pdfViewer.hidden = false;
     await renderPdfPage(state.currentPage, { forceFit });
   }
+  // Change 5: always scroll to top after any page render
+  dom.viewerShell.scrollTop = 0;
   dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
+  window.scrollTo(0, 0);
 }
 
 async function goToPage(pageNumber, { save = true } = {}) {
@@ -815,7 +853,13 @@ async function goToPage(pageNumber, { save = true } = {}) {
   if (next === state.currentPage && save) return;
   state.currentPage = next;
   await renderCurrentPage();
-  if (save) scheduleSave();
+  // Change 5: scroll to very top after page change
+  dom.viewerShell.scrollTop = 0;
+  window.scrollTo(0, 0);
+  if (save) {
+    scheduleSave();
+    saveCurrentBookState(); // Change 8
+  }
 }
 
 async function openBook(book) {
@@ -835,31 +879,41 @@ async function openBook(book) {
   switchScreen("reader");
   toggleMenu(false);
 
-  const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
-    fetchProgress(book.bookId),
-    jsonp("listBookmarks", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
-    jsonp("listNotes", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
-    loadTextJson(book).catch(() => null),
-  ]);
+  // Change 3: show loading overlay
+  dom.bookLoadingOverlay.hidden = false;
 
-  state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
-  state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
-  state.textDoc = textDoc;
+  try {
+    const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
+      fetchProgress(book.bookId),
+      jsonp("listBookmarks", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
+      jsonp("listNotes", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
+      loadTextJson(book).catch(() => null),
+    ]);
 
-  if (textDoc?.totalPages) state.totalPages = Number(textDoc.totalPages) || state.totalPages;
-  if (!state.totalPages || !textDoc) {
-    const pdfDoc = await loadPdfDocument(book);
-    state.totalPages = pdfDoc.numPages;
+    state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
+    state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
+    state.textDoc = textDoc;
+
+    if (textDoc?.totalPages) state.totalPages = Number(textDoc.totalPages) || state.totalPages;
+    if (!state.totalPages || !textDoc) {
+      const pdfDoc = await loadPdfDocument(book);
+      state.totalPages = pdfDoc.numPages;
+    }
+
+    // PDF mode uniquement si pdfAllowed ET pas de JSON
+    const pdfAllowed = !!book.pdfAllowed;
+    state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : (pdfAllowed ? "pdf" : "text");
+    const restoredPage = progress?.currentPage ? Number(progress.currentPage) : 1;
+    state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
+    resetNoteEditor();
+    await renderCurrentPage({ forceFit: true });
+    setSaveStatus("Prêt");
+    // Change 8: persist current book state
+    saveCurrentBookState();
+  } finally {
+    // Change 3: hide loading overlay
+    dom.bookLoadingOverlay.hidden = true;
   }
-
-  // PDF mode uniquement si pdfAllowed ET pas de JSON
-  const pdfAllowed = !!book.pdfAllowed;
-  state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : (pdfAllowed ? "pdf" : "text");
-  const restoredPage = progress?.currentPage ? Number(progress.currentPage) : 1;
-  state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
-  resetNoteEditor();
-  await renderCurrentPage({ forceFit: true });
-  setSaveStatus("Prêt");
 }
 
 function getBookById(bookId) {
@@ -979,6 +1033,69 @@ async function toggleBookPdfAllowed(bookId) {
   } catch (error) {
     console.error(error);
     showToast("Impossible de modifier l'autorisation PDF");
+  }
+}
+
+// Change 6: Edit book metadata
+function openEditBookModal(bookId) {
+  const book = getBookById(bookId);
+  if (!book) return;
+  dom.editBookId.value = book.bookId;
+  dom.editBookTitle.value = book.title || "";
+  dom.editBookAuthor.value = book.author || "";
+  dom.editBookDescription.value = book.description || "";
+  dom.editBookStatus.textContent = "";
+  dom.editBookModal.hidden = false;
+}
+
+async function saveEditBook() {
+  const bookId = dom.editBookId.value.trim();
+  const title = dom.editBookTitle.value.trim();
+  const author = dom.editBookAuthor.value.trim();
+  const description = dom.editBookDescription.value.trim();
+  if (!title) { dom.editBookStatus.textContent = "Le titre est requis."; return; }
+  dom.editBookSaveBtn.disabled = true;
+  dom.editBookStatus.textContent = "Enregistrement…";
+  try {
+    const response = await jsonp("updateBook", {
+      email: state.email, adminCode: state.adminCode,
+      bookId, title, author, description,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de modifier le livre.");
+    dom.editBookModal.hidden = true;
+    await refreshBooks();
+    showToast("Livre modifié");
+  } catch (error) {
+    console.error(error);
+    dom.editBookStatus.textContent = error.message || "Erreur lors de la modification.";
+  } finally {
+    dom.editBookSaveBtn.disabled = false;
+  }
+}
+
+// Change 7: Add users in bulk
+async function addUsersInBulk() {
+  const raw = dom.addUsersTextarea.value.trim();
+  if (!raw) { dom.addUsersStatus.textContent = "Aucune adresse saisie."; return; }
+  const emails = raw.split(/[\n,;]+/).map((e) => normalizeEmail(e)).filter((e) => isValidEmail(e));
+  if (!emails.length) { dom.addUsersStatus.textContent = "Aucune adresse valide trouvée."; return; }
+  if (emails.length > 100) { dom.addUsersStatus.textContent = "Maximum 100 adresses à la fois."; return; }
+  dom.addUsersBtn.disabled = true;
+  dom.addUsersStatus.textContent = `Ajout de ${emails.length} utilisateur(s)…`;
+  try {
+    const response = await jsonp("addUsers", {
+      email: state.email, adminCode: state.adminCode,
+      emails: emails.join(","),
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible d'ajouter les utilisateurs.");
+    dom.addUsersTextarea.value = "";
+    dom.addUsersStatus.textContent = `✓ ${emails.length} utilisateur(s) ajouté(s)`;
+    showToast(`${emails.length} utilisateur(s) ajouté(s)`);
+  } catch (error) {
+    console.error(error);
+    dom.addUsersStatus.textContent = error.message || "Erreur lors de l'ajout.";
+  } finally {
+    dom.addUsersBtn.disabled = false;
   }
 }
 

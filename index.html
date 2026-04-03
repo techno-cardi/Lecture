@@ -150,8 +150,45 @@
           </div>
           <div id="adminBooksList" class="admin-books-list"></div>
         </div>
+
+        <!-- Ajout d'utilisateurs en masse -->
+        <div id="addUsersSection" class="add-users-section" hidden>
+          <div class="admin-books-head" style="margin-bottom:10px;">
+            <h4>Ajouter des utilisateurs</h4>
+          </div>
+          <p class="admin-help">Entre une adresse courriel par ligne (maximum 100).</p>
+          <textarea id="addUsersTextarea" rows="6" maxlength="12000" placeholder="prenom.nom@educ.cscapitale.qc.ca&#10;prenom2.nom2@educ.cscapitale.qc.ca"></textarea>
+          <div class="notes-actions" style="margin-top:10px;">
+            <button id="addUsersBtn" class="nav-btn" type="button">Ajouter les utilisateurs</button>
+            <span id="addUsersStatus" class="save-status"></span>
+          </div>
+        </div>
       </section>
     </section>
+
+    <!-- Modal modification d'un livre -->
+    <div id="editBookModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel edit-book-modal-panel">
+        <div class="font-modal-title">Modifier le livre</div>
+        <div class="edit-book-form">
+          <label>Titre
+            <input id="editBookTitle" type="text" placeholder="Titre du livre">
+          </label>
+          <label>Auteur
+            <input id="editBookAuthor" type="text" placeholder="Auteur ou autrice (optionnel)">
+          </label>
+          <label>Description
+            <textarea id="editBookDescription" rows="3" maxlength="500" placeholder="Courte description (optionnel)"></textarea>
+          </label>
+          <input id="editBookId" type="hidden">
+        </div>
+        <div class="notes-actions" style="margin-top:4px;">
+          <button id="editBookSaveBtn" class="nav-btn" type="button">Enregistrer</button>
+          <button id="editBookCancelBtn" class="ghost-btn" type="button">Annuler</button>
+          <span id="editBookStatus" class="save-status"></span>
+        </div>
+      </div>
+    </div>
 
     <!-- ═══════════════ LECTEUR ═══════════════ -->
     <section id="reader" class="reader-screen" hidden>
@@ -162,9 +199,14 @@
         <button id="topProgressLabel" class="top-progress-label" type="button" title="Cliquer pour changer l'affichage">0 %</button>
       </div>
 
-      <!-- Boutons flottants haut -->
-      <button id="backToLibraryBtn" class="back-button" type="button" title="Retour à la bibliothèque">←</button>
+      <!-- Bouton flottant menu (le bouton retour est maintenant dans le menu) -->
       <button id="menuToggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" title="Ouvrir le menu">☰</button>
+
+      <!-- Superposition de chargement -->
+      <div id="bookLoadingOverlay" class="book-loading-overlay" hidden>
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Chargement du livre en cours…</span>
+      </div>
 
       <div id="menuBackdrop" class="menu-backdrop" hidden></div>
 
@@ -175,7 +217,10 @@
             <div id="docLabel" class="doc-label"></div>
             <div id="pageLabel" class="page-label">Page 0 / 0</div>
           </div>
-          <button id="closeMenuBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          <div class="panel-header-actions">
+            <button id="backToLibraryBtn" class="ghost-btn panel-back-btn" type="button" title="Retour à la bibliothèque">← Bibliothèque</button>
+            <button id="closeMenuBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          </div>
         </div>
 
         <div class="progress-block">
