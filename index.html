@@ -11,7 +11,6 @@
   <title>Lecteur scolaire</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="stylesheet" href="./style.css">
-  <link rel="icon" href="/favicon.ico" type="image/x-icon">
 </head>
 <body>
   <div class="app-shell">
@@ -26,7 +25,7 @@
     <!-- ═══════════════ ÉCRAN DE CONNEXION ═══════════════ -->
     <section id="gate" class="gate-screen panel">
       <h1 class="app-title">Lecture du document</h1>
-      <p class="app-subtitle">Entre ton courriel scolaire pour accéder à la bibliothèque.</p>
+      <p class="app-subtitle">Entre une adresse courriel autorisée pour accéder à la bibliothèque.</p>
 
       <form id="loginForm" class="login-form" autocomplete="on">
         <label for="emailInput" class="sr-only">Courriel scolaire</label>
@@ -39,7 +38,7 @@
           autocapitalize="off"
           autocorrect="off"
           spellcheck="false"
-          placeholder="prenom.nom@educ.cscapitale.qc.ca"
+          placeholder="prenom.nom@exemple.com"
           required
         >
         <label class="remember-me-label">

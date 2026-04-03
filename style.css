@@ -338,12 +338,6 @@ textarea,
 .menu-toggle {
   top: calc(var(--safe-top) + 10px);
   right: calc(var(--safe-right) + 10px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.menu-toggle-hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-8px);
 }
 .back-button {
   top: calc(var(--safe-top) + 10px);
@@ -389,6 +383,16 @@ textarea,
 .bookmark-chip button, .note-card button {
   background: transparent; color: var(--primary);
   font-weight: 700; padding: 0; min-height: auto;
+}
+.bookmark-chip.active {
+  background: #dbeafe;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18);
+}
+.bookmark-chip.bookmark-pulse {
+  animation: bookmarkChipPulse 0.9s ease;
+}
+.bookmark-chip.active button:first-child {
+  color: #1e3a8a;
 }
 .note-card-text { white-space: pre-wrap; color: var(--text); line-height: 1.5; font-size: 0.95rem; }
 .note-card-meta { color: var(--muted); font-size: 0.82rem; margin-bottom: 6px; }
@@ -446,6 +450,10 @@ textarea,
 .nav-bottom-page:active {
   background: rgba(255,255,255,0.15);
 }
+.nav-bottom-page.page-indicator-flash,
+.top-progress-label.page-indicator-flash {
+  animation: pageIndicatorFlash 0.48s ease;
+}
 
 /* ════════════════════════════════════════
    MODAL TAILLE DU TEXTE
@@ -460,14 +468,6 @@ textarea,
   background: rgba(15, 23, 42, 0.38);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-}
-#fontModal.font-modal-overlay {
-  align-items: flex-start;
-  justify-content: flex-end;
-  padding: calc(var(--safe-top) + 58px) 12px calc(var(--safe-bottom) + var(--nav-h) + 12px);
-  background: transparent;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 .font-modal-panel {
   width: 100%;
@@ -516,27 +516,32 @@ textarea,
 .font-modal-hint { margin: 0; color: var(--muted); font-size: 0.88rem; text-align: center; }
 .font-modal-close-btn { width: 100%; }
 
-#fontModal .font-modal-panel {
-  width: min(320px, calc(100vw - 24px));
-  max-width: 320px;
-  border-radius: 20px;
-  padding: 16px 16px 14px;
+.book-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 12px;
-  background: rgba(248, 250, 252, 0.96);
+  background: rgba(15, 23, 42, 0.28);
+  color: #fff;
+  font-weight: 700;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
-#fontModal .font-modal-controls {
-  gap: 12px;
+
+.reading-surface.page-turn-next .text-page,
+.reading-surface.page-turn-next #pdfCanvas {
+  animation: pageTurnNext 0.22s ease both;
 }
-#fontModal .font-modal-btn {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
+.reading-surface.page-turn-prev .text-page,
+.reading-surface.page-turn-prev #pdfCanvas {
+  animation: pageTurnPrev 0.22s ease both;
 }
-#fontModal .font-modal-hint {
-  font-size: 0.82rem;
-}
-#fontModal .font-modal-close-btn {
-  min-height: 42px;
+.reading-surface.bookmark-jump .text-page,
+.reading-surface.bookmark-jump #pdfCanvas {
+  animation: bookmarkPagePulse 0.62s ease;
 }
 
 /* ════════════════════════════════════════
@@ -565,6 +570,7 @@ textarea,
 .theme-night .font-modal-title, .theme-night .font-modal-preview { color: #e5edf8; }
 .theme-night .font-modal-btn { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
 .theme-night .font-modal-hint { color: #94a3b8; }
+.theme-night .bookmark-chip.active { background: rgba(37, 99, 235, 0.18); box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.2); }
 
 /* ════════════════════════════════════════
    TAILLES DE POLICE
@@ -602,18 +608,38 @@ textarea,
 
 .status-success { color: var(--success); }
 .status-error { color: var(--danger); }
+.status-pending { color: #1d4ed8; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pageIndicatorFlash {
+  0% { transform: scale(1); background: rgba(255,255,255,0.07); }
+  35% { transform: scale(1.04); background: rgba(96, 165, 250, 0.26); }
+  100% { transform: scale(1); background: rgba(255,255,255,0.07); }
+}
+@keyframes pageTurnNext {
+  0% { opacity: 0.74; transform: translateX(10px) rotateY(-6deg); }
+  100% { opacity: 1; transform: translateX(0) rotateY(0deg); }
+}
+@keyframes pageTurnPrev {
+  0% { opacity: 0.74; transform: translateX(-10px) rotateY(6deg); }
+  100% { opacity: 1; transform: translateX(0) rotateY(0deg); }
+}
+@keyframes bookmarkChipPulse {
+  0% { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18), 0 0 0 0 rgba(96, 165, 250, 0.38); }
+  70% { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.24), 0 0 0 12px rgba(96, 165, 250, 0); }
+  100% { box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.18), 0 0 0 0 rgba(96, 165, 250, 0); }
+}
+@keyframes bookmarkPagePulse {
+  0% { box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }
+  45% { box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.28), 0 16px 34px rgba(15, 23, 42, 0.12); }
+  100% { box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08); }
+}
 
 /* ════════════════════════════════════════
    RESPONSIVE
 ════════════════════════════════════════ */
 @media (min-width: 760px) {
   .publish-grid { grid-template-columns: 1fr 1fr; }
-  #fontModal.font-modal-overlay {
-    padding-top: calc(var(--safe-top) + 16px);
-    padding-right: 16px;
-  }
   .admin-lock-row { grid-template-columns: 1fr auto; }
   .book-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-books-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
