@@ -66,6 +66,7 @@
         <div>
           <p class="eyebrow">Bibliothèque</p>
           <h2 class="library-title">Choisis un livre</h2>
+          <p id="libraryGreeting" class="library-greeting"></p>
           <p id="libraryMeta" class="library-meta"></p>
         </div>
         <div class="header-actions">
@@ -75,6 +76,7 @@
       </header>
 
       <section id="bookList" class="book-list" aria-live="polite"></section>
+      <footer class="library-footer">Créé par Kevin Tremblay, technopédagogue Cardinal-Roy</footer>
 
       <!-- ═══ PANNEAU ADMINISTRATEUR ═══ -->
       <section id="adminPanel" class="admin-panel panel" hidden>
@@ -180,12 +182,36 @@
           <label>Description
             <textarea id="editBookDescription" rows="3" maxlength="500" placeholder="Courte description (optionnel)"></textarea>
           </label>
+          <label>Pages masquées pour les élèves
+            <input id="editBookHiddenPages" type="text" maxlength="120" placeholder="Ex. 1-7, 12-13">
+          </label>
+          <p class="admin-help modal-help">Les pages indiquées ici ne seront plus affichées aux élèves. Utilise des plages comme 1-7, 12-13.</p>
           <input id="editBookId" type="hidden">
         </div>
         <div class="notes-actions" style="margin-top:4px;">
           <button id="editBookSaveBtn" class="nav-btn" type="button">Enregistrer</button>
           <button id="editBookCancelBtn" class="ghost-btn" type="button">Annuler</button>
           <span id="editBookStatus" class="save-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal premier accès -->
+    <div id="profileModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel edit-book-modal-panel">
+        <div class="font-modal-title">Première connexion</div>
+        <div class="edit-book-form">
+          <p class="admin-help modal-help">Entre ton prénom et ton nom pour compléter ton accès.</p>
+          <label>Prénom
+            <input id="profileFirstNameInput" type="text" maxlength="80" autocomplete="given-name" placeholder="Prénom">
+          </label>
+          <label>Nom
+            <input id="profileLastNameInput" type="text" maxlength="120" autocomplete="family-name" placeholder="Nom">
+          </label>
+        </div>
+        <div class="notes-actions" style="margin-top:4px;">
+          <button id="profileSaveBtn" class="nav-btn" type="button">Continuer</button>
+          <span id="profileStatus" class="save-status"></span>
         </div>
       </div>
     </div>
@@ -205,7 +231,7 @@
       <!-- Superposition de chargement -->
       <div id="bookLoadingOverlay" class="book-loading-overlay" hidden>
         <span class="spinner" aria-hidden="true"></span>
-        <span>Chargement du livre en cours…</span>
+        <span id="bookLoadingMessage">Chargement du livre en cours…</span>
       </div>
 
       <div id="menuBackdrop" class="menu-backdrop" hidden></div>
@@ -252,6 +278,9 @@
           <button id="bookmarkBtn" class="secondary-btn" type="button">Ajouter un signet</button>
           <button id="saveBtn" class="secondary-btn" type="button">Sauvegarder</button>
           <button id="themeBtn" class="secondary-btn" type="button">Mode nuit</button>
+        </div>
+        <div class="bookmark-status-row">
+          <span id="bookmarkStatus" class="save-status"></span>
         </div>
 
         <div class="bookmarks-block">
