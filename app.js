@@ -13,6 +13,7 @@ const LS_THEME_KEY = "readerTheme";
 const LS_INSTALL_KEY = "installBannerDismissed";
 const LS_IOS_INSTALL_KEY = "iosInstallDismissed";
 const LS_CURRENT_BOOK_KEY = "currentBookState_v1";
+const LS_BOOKS_CACHE_KEY = "booksCache_v1";
 
 // ════════════════════════════════════════
 // DOM REFS
@@ -171,6 +172,7 @@ const state = {
   visiblePages: [],
   authVerified: false,
   bookmarkActionBusy: false,
+  currentPdfRenderTask: null,
 };
 
 // ════════════════════════════════════════
@@ -310,6 +312,78 @@ function readCurrentBookState() {
   }
 }
 
+function buildBookSnapshot(book) {
+  if (!book?.bookId) return null;
+  return {
+    bookId: book.bookId,
+    title: book.title || "",
+    author: book.author || "",
+    published: !!book.published,
+    pdfPath: book.pdfPath || "",
+    jsonPath: book.jsonPath || "",
+    coverPath: book.coverPath || "",
+    totalPages: Number(book.totalPages) || 0,
+    sourceFileName: book.sourceFileName || "",
+    description: book.description || "",
+    lastPublishedAt: book.lastPublishedAt || "",
+    lastUpdatedBy: book.lastUpdatedBy || "",
+    pdfAllowed: !!book.pdfAllowed,
+    hiddenPageRanges: book.hiddenPageRanges || "",
+  };
+}
+
+function saveBooksCache() {
+  if (!state.email) return;
+  try {
+    localStorage.setItem(LS_BOOKS_CACHE_KEY, JSON.stringify({
+      email: state.email,
+      books: Array.isArray(state.books) ? state.books.map(buildBookSnapshot).filter(Boolean) : [],
+      savedAt: Date.now(),
+    }));
+  } catch (_) {}
+}
+
+function readBooksCache() {
+  try {
+    const raw = localStorage.getItem(LS_BOOKS_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data?.email || normalizeEmail(data.email) !== normalizeEmail(state.email)) return null;
+    if (!Array.isArray(data.books)) return null;
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearBooksCache() {
+  try { localStorage.removeItem(LS_BOOKS_CACHE_KEY); } catch (_) {}
+}
+
+function normalizeRestoredDisplayPage(pageNumber) {
+  const target = Math.max(1, Number(pageNumber) || 1);
+  if (!state.visiblePages?.length) return target;
+
+  if (state.currentBook?.hiddenPageRanges) {
+    const sourceIndex = state.visiblePages.indexOf(target);
+    if (sourceIndex >= 0) return sourceIndex + 1;
+
+    const nextVisibleIndex = state.visiblePages.findIndex((sourcePage) => sourcePage >= target);
+    if (nextVisibleIndex >= 0) return nextVisibleIndex + 1;
+    return state.visiblePages.length;
+  }
+
+  return Math.max(1, Math.min(state.visiblePages.length, target));
+}
+
+function cancelActivePdfRender() {
+  if (!state.currentPdfRenderTask) return;
+  try {
+    state.currentPdfRenderTask.cancel();
+  } catch (_) {}
+  state.currentPdfRenderTask = null;
+}
+
 function buildVisiblePages(totalPages, hiddenPageRanges = "") {
   const total = Math.max(0, Number(totalPages) || 0);
   const pages = [];
@@ -419,6 +493,7 @@ function setBookmarkControlsDisabled(disabled) {
 }
 
 function resetSensitiveUiState() {
+  cancelActivePdfRender();
   state.userProfile = { firstName: "", lastName: "" };
   state.books = [];
   state.currentBook = null;
@@ -462,6 +537,10 @@ function saveSession() {
       isAdminCandidate: state.isAdminCandidate,
       adminUnlocked: state.adminUnlocked,
       adminCode: state.adminCode,
+      userProfile: {
+        firstName: state.userProfile?.firstName || "",
+        lastName: state.userProfile?.lastName || "",
+      },
     }));
   } catch (_) { /* localStorage peut être désactivé */ }
 }
@@ -469,6 +548,7 @@ function saveSession() {
 function clearSession() {
   try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
   try { localStorage.removeItem(LS_CURRENT_BOOK_KEY); } catch (_) {}
+  clearBooksCache();
 }
 
 function restoreSession() {
@@ -481,6 +561,10 @@ function restoreSession() {
     state.isAdminCandidate = !!data.isAdminCandidate;
     state.adminUnlocked = !!data.adminUnlocked;
     state.adminCode = data.adminCode || "";
+    state.userProfile = {
+      firstName: normalizePersonName(data.userProfile?.firstName || ""),
+      lastName: normalizePersonName(data.userProfile?.lastName || ""),
+    };
     return true;
   } catch (_) {
     return false;
@@ -495,6 +579,7 @@ function saveCurrentBookState() {
       email: state.email,
       bookId: state.currentBook.bookId,
       page: state.currentPage,
+      book: buildBookSnapshot(state.currentBook),
     }));
   } catch (_) {}
 }
@@ -599,6 +684,7 @@ async function refreshBooks() {
   });
   if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
   state.books = Array.isArray(response.books) ? response.books : [];
+  saveBooksCache();
   renderBookList();
   renderAdminBooks();
 }
@@ -1117,9 +1203,11 @@ function computeFitScale(page) {
 
 async function renderPdfPage(pageNumber, { forceFit = false } = {}) {
   if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
+  cancelActivePdfRender();
   const renderToken = ++state.renderToken;
   const sourcePageNumber = getSourcePageNumber(pageNumber);
   const page = await state.pdfDoc.getPage(sourcePageNumber);
+  if (renderToken !== state.renderToken) return;
   if (forceFit) state.pdfZoomMultiplier = 1;
   const scale = computeFitScale(page) * state.pdfZoomMultiplier;
   const viewport = page.getViewport({ scale });
@@ -1137,7 +1225,18 @@ async function renderPdfPage(pageNumber, { forceFit = false } = {}) {
     viewport,
     transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null,
   };
-  await page.render(renderContext).promise;
+  const renderTask = page.render(renderContext);
+  state.currentPdfRenderTask = renderTask;
+  try {
+    await renderTask.promise;
+  } catch (error) {
+    if (error?.name === "RenderingCancelledException") return;
+    throw error;
+  } finally {
+    if (state.currentPdfRenderTask === renderTask) {
+      state.currentPdfRenderTask = null;
+    }
+  }
   if (renderToken !== state.renderToken) return;
   dom.viewerShell.scrollTop = 0;
   dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
@@ -1189,6 +1288,7 @@ async function openBook(book, options = {}) {
     ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
     : "Chargement du livre en cours…";
   const { preferredPage = 0, loadingMessage = defaultLoadingMessage } = options;
+  cancelActivePdfRender();
   state.currentBook = book;
   state.currentPage = 1;
   state.totalPages = Number(book.totalPages) || 0;
@@ -1210,7 +1310,7 @@ async function openBook(book, options = {}) {
 
   try {
     const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
-      fetchProgress(book.bookId),
+      fetchProgress(book.bookId).catch(() => null),
       jsonp("listBookmarks", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
       jsonp("listNotes", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
       loadTextJson(book).catch(() => null),
@@ -1237,7 +1337,7 @@ async function openBook(book, options = {}) {
     state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : (pdfAllowed ? "pdf" : "text");
     const serverPage = progress?.currentPage ? Number(progress.currentPage) : 1;
     const restoredPage = Number(preferredPage) || serverPage || 1;
-    state.currentPage = Math.max(1, Math.min(state.totalPages, restoredPage));
+    state.currentPage = Math.max(1, Math.min(state.totalPages, normalizeRestoredDisplayPage(restoredPage)));
     resetNoteEditor();
     await renderCurrentPage({ forceFit: true });
     setSaveStatus("Prêt");
@@ -1727,7 +1827,7 @@ async function maybeRestoreCurrentBook() {
   if (!state.authVerified || !state.email) return false;
   const saved = readCurrentBookState();
   if (!saved?.bookId) return false;
-  const book = getBookById(saved.bookId);
+  const book = getBookById(saved.bookId) || buildBookSnapshot(saved.book);
   if (!book) return false;
   const firstName = getUserFirstName();
   const loadingMessage = firstName
@@ -1754,12 +1854,41 @@ async function finishLoginFlow(options = {}) {
     ? `Bienvenue ${firstName}! Chargement de la bibliothèque en cours. Merci de patienter.`
     : "Chargement de la bibliothèque en cours. Merci de patienter.";
   renderLibraryLoadingState(loadingMessage);
-  await refreshBooks();
-  if (attemptRestore) {
-    const restored = await maybeRestoreCurrentBook();
-    if (restored) return;
+
+  let loadedFromCache = false;
+  try {
+    await refreshBooks();
+  } catch (error) {
+    const cached = readBooksCache();
+    const savedBookState = readCurrentBookState();
+    const savedBook = buildBookSnapshot(savedBookState?.book);
+    if (!fromRestore) {
+      throw error;
+    }
+    if (cached?.books?.length) {
+      state.books = cached.books;
+    } else if (savedBook) {
+      state.books = [savedBook];
+    } else {
+      throw error;
+    }
+    renderBookList();
+    renderAdminBooks();
+    loadedFromCache = true;
+    showToast("Bibliothèque restaurée à partir de la dernière session");
   }
-  if (!fromRestore) showToast("Bibliothèque chargée");
+
+  if (attemptRestore) {
+    try {
+      const restored = await maybeRestoreCurrentBook();
+      if (restored) return;
+    } catch (error) {
+      if (!fromRestore) throw error;
+      switchScreen("library");
+      showToast("Impossible de rouvrir le dernier livre");
+    }
+  }
+  if (!fromRestore && !loadedFromCache) showToast("Bibliothèque chargée");
 }
 
 function openProfileModal() {
@@ -1799,6 +1928,30 @@ async function saveUserProfileAndContinue() {
     dom.profileStatus.textContent = error.message || "Erreur lors de l'enregistrement.";
   } finally {
     dom.profileSaveBtn.disabled = false;
+  }
+}
+
+async function revalidateSessionInBackground() {
+  if (!state.email) return;
+  try {
+    const expectedEmail = normalizeEmail(state.email);
+    const response = await auth(expectedEmail);
+    if (!response?.ok) return;
+    if (normalizeEmail(response.email) !== expectedEmail) return;
+    state.isAdminCandidate = !!response.isAdminCandidate;
+    state.userProfile = {
+      firstName: normalizePersonName(response.profile?.firstName || state.userProfile?.firstName || ""),
+      lastName: normalizePersonName(response.profile?.lastName || state.userProfile?.lastName || ""),
+    };
+    if (!canSeeAdminPanel()) {
+      state.adminUnlocked = false;
+      state.adminCode = "";
+    }
+    applyAdminVisibility();
+    updateLibraryGreeting();
+    saveSession();
+  } catch (_) {
+    // On conserve la session locale de l'appareil même si la validation distante échoue temporairement.
   }
 }
 
@@ -2256,33 +2409,15 @@ async function init() {
   const sessionOk = restoreSession();
   if (sessionOk && state.email) {
     try {
-      const restoredEmail = normalizeEmail(state.email);
-      const response = await auth(restoredEmail);
-      if (!response?.ok) throw new Error(response?.message || "Session expirée.");
-      if (normalizeEmail(response.email) !== restoredEmail) throw new Error("Session invalide.");
-      state.email = restoredEmail;
+      state.email = normalizeEmail(state.email);
       state.authVerified = true;
-      state.isAdminCandidate = !!response.isAdminCandidate;
       if (!canSeeAdminPanel()) {
         state.adminUnlocked = false;
         state.adminCode = "";
       }
-      state.userProfile = {
-        firstName: normalizePersonName(response.profile?.firstName || ""),
-        lastName: normalizePersonName(response.profile?.lastName || ""),
-      };
       if (state.adminUnlocked) setPublishStatus("Module administrateur déverrouillé", true);
-      if (!response.profileComplete) {
-        clearSession();
-        resetSensitiveUiState();
-        state.email = "";
-        resetAdminState();
-        switchScreen("gate");
-        toggleMenu(false);
-        setGateBusy(false);
-        return;
-      }
       await finishLoginFlow({ attemptRestore: true, fromRestore: true });
+      void revalidateSessionInBackground();
       return;
     } catch (_) {
       clearSession();
