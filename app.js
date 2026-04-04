@@ -14,6 +14,10 @@ const LS_INSTALL_KEY = "installBannerDismissed";
 const LS_IOS_INSTALL_KEY = "iosInstallDismissed";
 const LS_CURRENT_BOOK_KEY = "currentBookState_v1";
 const LS_BOOKS_CACHE_KEY = "booksCache_v1";
+const LS_LINE_SPACING_KEY = "readerLineSpacing";
+const LS_NARROW_KEY = "readerNarrowLayout";
+const LS_FOCUS_KEY = "readerFocusMode";
+const LS_OFFLINE_QUEUE_KEY = "readerOfflineQueue_v1";
 
 // ════════════════════════════════════════
 // DOM REFS
@@ -141,6 +145,9 @@ const dom = {
   bookmarkStatus: document.getElementById("bookmarkStatus"),
   saveBtn: document.getElementById("saveBtn"),
   themeBtn: document.getElementById("themeBtn"),
+  lineSpacingBtn: document.getElementById("lineSpacingBtn"),
+  widthToggleBtn: document.getElementById("widthToggleBtn"),
+  focusModeBtn: document.getElementById("focusModeBtn"),
   bookmarkList: document.getElementById("bookmarkList"),
   noteInput: document.getElementById("pageNoteInput"),
   saveNoteBtn: document.getElementById("saveNoteBtn"),
@@ -229,6 +236,12 @@ const state = {
   pendingReadingSeconds: 0,
   readingTickMs: 0,
   currentBookOpenedAt: "",
+  currentPageEnteredAt: 0,
+  lineSpacingMode: localStorage.getItem(LS_LINE_SPACING_KEY) || "normal",
+  narrowLayout: localStorage.getItem(LS_NARROW_KEY) === "1",
+  focusMode: localStorage.getItem(LS_FOCUS_KEY) === "1",
+  offlineQueue: [],
+  syncingOfflineQueue: false,
 };
 
 // ════════════════════════════════════════
@@ -776,6 +789,10 @@ function renderReadingCheckDetails() {
             <div class="reading-check-stat-label">Temps de lecture</div>
             <div class="reading-check-stat-value">${escapeHtml(formatReadingDuration(book.readingSeconds))}</div>
           </div>
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Première ouverture</div>
+            <div class="reading-check-stat-value">${book.firstOpenedAt ? escapeHtml(formatDateTime(book.firstOpenedAt)) : "Aucune donnée"}</div>
+          </div>
         </div>
         <div class="reading-check-book-stats">
           <div class="reading-check-stat">
@@ -783,15 +800,23 @@ function renderReadingCheckDetails() {
             <div class="reading-check-stat-value">${book.lastUpdated ? escapeHtml(formatDateTime(book.lastUpdated)) : "Aucune donnée"}</div>
           </div>
           <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Signets placés</div>
-            <div class="reading-check-stat-value">${bookmarks.length}</div>
+            <div class="reading-check-stat-label">Séances</div>
+            <div class="reading-check-stat-value">${Number(book.sessionCount) || 0}</div>
           </div>
           <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Notes écrites</div>
-            <div class="reading-check-stat-value">${notes.length}</div>
+            <div class="reading-check-stat-label">Moyenne / séance</div>
+            <div class="reading-check-stat-value">${escapeHtml(formatSessionAverage(book.averageSessionSeconds))}</div>
+          </div>
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Pages vues</div>
+            <div class="reading-check-stat-value">${Number(book.viewedPagesCount) || 0}</div>
           </div>
         </div>
         <div class="reading-check-book-sections">
+          <section class="reading-check-section">
+            <div class="reading-check-section-title">Pages les plus consultées</div>
+            ${(Array.isArray(book.topPages) && book.topPages.length) ? `<div class="reading-check-chip-list">${book.topPages.map((item) => `<div class="reading-check-chip"><strong>Page ${Number(item.page) || 0}</strong><span>${Number(item.viewsCount) || 0} vue(s)</span></div>`).join('')}</div>` : `<div class="empty-state">Aucune donnée de navigation.</div>`}
+          </section>
           <section class="reading-check-section">
             <div class="reading-check-section-title">Signets</div>
             ${bookmarkHtml}
@@ -826,6 +851,10 @@ function renderReadingCheckDetails() {
       <div class="reading-check-summary-card">
         <div class="reading-check-summary-label">Temps de lecture</div>
         <div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(summary.totalReadingSeconds))}</div>
+      </div>
+      <div class="reading-check-summary-card">
+        <div class="reading-check-summary-label">Séances</div>
+        <div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div>
       </div>
     </div>
     <div class="reading-check-book-list">${bookCards}</div>
@@ -895,6 +924,7 @@ function renderBookReviewSummary() {
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Commencés</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Avec notes</div><div class="reading-check-summary-value">${Number(summary.withNotesUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Terminés</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div></div>
     </div>
   `;
 }
@@ -1346,6 +1376,7 @@ function resetSensitiveUiState() {
   state.pendingReadingSeconds = 0;
   state.readingTickMs = 0;
   state.currentBookOpenedAt = "";
+  state.currentPageEnteredAt = 0;
   if (dom.bookList) dom.bookList.innerHTML = "";
   if (dom.libraryGreeting) dom.libraryGreeting.textContent = "";
   if (dom.libraryMeta) dom.libraryMeta.textContent = "";
@@ -1603,8 +1634,8 @@ async function saveProgress({ immediate = false, showSuccess = false, showError 
   } catch (error) {
     console.error(error);
     if (payload.readSecondsDelta) state.pendingReadingSeconds += Number(payload.readSecondsDelta) || 0;
-    setSaveStatus("Sauvegarde impossible", "error");
-    if (showError) showToast("Sauvegarde impossible");
+    queueOfflineAction('saveProgress', payload, 'Progression enregistrée localement.');
+    if (showError) showToast('Progression enregistrée localement');
   }
 }
 
@@ -1655,7 +1686,10 @@ async function addBookmark() {
   } catch (error) {
     console.error(error);
     setBookmarkStatus(error.message || "Impossible d'enregistrer le signet.", "error");
-    showToast("Impossible d'ajouter le signet");
+    state.bookmarks.push({ page: state.currentPage, createdAt: new Date().toISOString(), label: '' });
+    state.bookmarks.sort((a, b) => Number(a.page) - Number(b.page));
+    renderBookmarks();
+    queueOfflineAction('addBookmark', { email: state.email, bookId: state.currentBook.bookId, page: state.currentPage }, 'Signet enregistré localement.');
   } finally {
     state.bookmarkActionBusy = false;
     setBookmarkControlsDisabled(false);
@@ -1680,7 +1714,9 @@ async function removeBookmark(page) {
   } catch (error) {
     console.error(error);
     setBookmarkStatus(error.message || "Impossible de supprimer le signet.", "error");
-    showToast("Impossible de supprimer le signet");
+    state.bookmarks = state.bookmarks.filter((bookmark) => Number(bookmark.page) !== Number(page));
+    renderBookmarks();
+    queueOfflineAction('removeBookmark', { email: state.email, bookId: state.currentBook.bookId, page }, 'Retrait du signet en attente.');
   } finally {
     state.bookmarkActionBusy = false;
     setBookmarkControlsDisabled(false);
@@ -1789,6 +1825,111 @@ function renderNotes() {
     `).join("");
 }
 
+
+function loadOfflineQueue() {
+  try {
+    state.offlineQueue = JSON.parse(localStorage.getItem(LS_OFFLINE_QUEUE_KEY) || '[]');
+    if (!Array.isArray(state.offlineQueue)) state.offlineQueue = [];
+  } catch (_) {
+    state.offlineQueue = [];
+  }
+}
+
+function persistOfflineQueue() {
+  try {
+    localStorage.setItem(LS_OFFLINE_QUEUE_KEY, JSON.stringify(state.offlineQueue || []));
+  } catch (_) {}
+}
+
+function queueOfflineAction(action, params, statusMessage = 'Action enregistrée hors ligne. Synchronisation en attente.') {
+  state.offlineQueue = Array.isArray(state.offlineQueue) ? state.offlineQueue : [];
+  state.offlineQueue.push({ action, params, queuedAt: new Date().toISOString() });
+  persistOfflineQueue();
+  setSaveStatus('Synchronisation en attente', 'error');
+  if (action.indexOf('Bookmark') !== -1) setBookmarkStatus(statusMessage, 'error');
+  if (action.indexOf('Note') !== -1) setNoteStatus(statusMessage, 'error');
+}
+
+async function syncOfflineQueue() {
+  if (!state.authVerified || !state.email || state.syncingOfflineQueue) return;
+  if (!Array.isArray(state.offlineQueue) || !state.offlineQueue.length) return;
+  state.syncingOfflineQueue = true;
+  const remaining = [];
+  for (const item of state.offlineQueue) {
+    try {
+      const response = await jsonp(item.action, item.params || {});
+      if (!response?.ok) throw new Error(response?.message || 'Erreur de synchronisation.');
+    } catch (_) {
+      remaining.push(item);
+    }
+  }
+  state.offlineQueue = remaining;
+  persistOfflineQueue();
+  state.syncingOfflineQueue = false;
+  if (!remaining.length) {
+    if (state.currentBook) {
+      setSaveStatus('Synchronisé', 'success');
+      setBookmarkStatus('Synchronisé', 'success');
+      setNoteStatus('Synchronisé', 'success');
+    }
+  }
+}
+
+function applyReadingComfortClasses() {
+  if (!dom.readingSurface) return;
+  dom.readingSurface.classList.remove('line-spacing-normal', 'line-spacing-relaxed', 'line-spacing-loose', 'narrow-layout');
+  dom.readingSurface.classList.add(`line-spacing-${state.lineSpacingMode || 'normal'}`);
+  if (state.narrowLayout) dom.readingSurface.classList.add('narrow-layout');
+  document.body.classList.toggle('focus-mode-active', !!state.focusMode && !dom.reader.hidden);
+}
+
+function cycleLineSpacing() {
+  const order = ['normal', 'relaxed', 'loose'];
+  const currentIndex = Math.max(0, order.indexOf(state.lineSpacingMode));
+  state.lineSpacingMode = order[(currentIndex + 1) % order.length];
+  localStorage.setItem(LS_LINE_SPACING_KEY, state.lineSpacingMode);
+  applyReadingComfortClasses();
+  updateUiLabels();
+}
+
+function toggleNarrowLayout() {
+  state.narrowLayout = !state.narrowLayout;
+  localStorage.setItem(LS_NARROW_KEY, state.narrowLayout ? '1' : '0');
+  applyReadingComfortClasses();
+  updateUiLabels();
+}
+
+function toggleFocusMode() {
+  state.focusMode = !state.focusMode;
+  localStorage.setItem(LS_FOCUS_KEY, state.focusMode ? '1' : '0');
+  applyReadingComfortClasses();
+  updateUiLabels();
+}
+
+function getBookStatusLabel(book) {
+  const status = String(book?.readingStatus || 'not_started');
+  if (status === 'completed') return 'Terminé';
+  if (status === 'started') return 'Commencé';
+  return 'Non ouvert';
+}
+
+function formatSessionAverage(seconds) {
+  return seconds ? formatReadingDuration(seconds) : '—';
+}
+
+function flushCurrentPageJournal() {
+  if (!state.authVerified || !state.currentBook || !state.currentPageEnteredAt) return;
+  const secondsSpent = Math.max(0, Math.round((Date.now() - state.currentPageEnteredAt) / 1000));
+  const sourcePage = getSourcePageForDisplayPage(state.currentPage);
+  if (!sourcePage || secondsSpent < 2) {
+    state.currentPageEnteredAt = Date.now();
+    return;
+  }
+  const params = { email: state.email, bookId: state.currentBook.bookId, page: sourcePage, secondsSpent };
+  jsonp('trackPageView', params).catch(() => queueOfflineAction('trackPageView', params));
+  state.currentPageEnteredAt = Date.now();
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -1827,7 +1968,13 @@ async function saveCurrentNote() {
     setNoteStatus("Note enregistrée", "success");
   } catch (error) {
     console.error(error);
-    setNoteStatus("Sauvegarde impossible", "error");
+    const optimisticNoteId = state.editingNoteId || `local-${Date.now()}`;
+    const existingIndex = state.notes.findIndex((item) => item.noteId === optimisticNoteId);
+    const optimistic = { page: state.currentPage, noteId: optimisticNoteId, noteText, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    if (existingIndex >= 0) state.notes.splice(existingIndex, 1, optimistic); else state.notes.unshift(optimistic);
+    renderNotes();
+    resetNoteEditor();
+    queueOfflineAction('saveNote', { email: state.email, bookId: state.currentBook.bookId, page: state.currentPage, noteId: state.editingNoteId, noteText }, 'Note enregistrée localement.');
   }
 }
 
@@ -1843,7 +1990,9 @@ async function deleteNote(noteId) {
     setNoteStatus("Note supprimée", "success");
   } catch (error) {
     console.error(error);
-    setNoteStatus("Suppression impossible", "error");
+    state.notes = state.notes.filter((item) => item.noteId !== noteId);
+    renderNotes();
+    queueOfflineAction('deleteNote', { email: state.email, bookId: state.currentBook.bookId, noteId }, 'Suppression de note en attente.');
   }
 }
 
@@ -1895,6 +2044,13 @@ function renderBookList() {
         <h3>${escapeHtml(book.title)}</h3>
         <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
         <p class="book-meta">${getVisibleBookPageCount(book) ? `${getVisibleBookPageCount(book)} pages` : "Nombre de pages inconnu"}</p>
+        <div class="library-book-stats">
+          <span class="library-stat-chip status-${escapeHtml(String(book.readingStatus || 'not_started'))}">${escapeHtml(getBookStatusLabel(book))}</span>
+          ${Number(book.progressPercent) ? `<span class="library-stat-chip">${Math.round(Number(book.progressPercent) || 0)} %</span>` : ''}
+          ${Number(book.bookmarksCount) ? `<span class="library-stat-chip">${Number(book.bookmarksCount)} signet(s)</span>` : ''}
+          ${Number(book.notesCount) ? `<span class="library-stat-chip">${Number(book.notesCount)} note(s)</span>` : ''}
+        </div>
+        <p class="book-meta">${book.lastOpenedAt ? `Dernière ouverture: ${escapeHtml(formatDateTime(book.lastOpenedAt))}` : 'Pas encore ouvert'}</p>
         <div class="book-actions">
           ${renderOpenBookButton(book.bookId, "Ouvrir", "nav-btn")}
         </div>
@@ -1968,6 +2124,7 @@ function rebuildReadingSurfaceClasses() {
   dom.readingSurface.classList.add(state.mode === "text" ? "mode-text" : "mode-pdf");
   dom.readingSurface.classList.add(state.theme === "night" ? "theme-night" : "theme-paper");
   dom.readingSurface.classList.add(FONT_CLASSES[state.fontIndex] || FONT_CLASSES[1]);
+  applyReadingComfortClasses();
 }
 
 function updateUiLabels() {
@@ -1996,6 +2153,9 @@ function updateUiLabels() {
   // Boutons menu
   dom.modeToggleBtn.textContent = state.mode === "text" ? "Mode PDF" : "Mode texte";
   dom.themeBtn.textContent = state.theme === "paper" ? "Mode nuit" : "Mode clair";
+  if (dom.lineSpacingBtn) dom.lineSpacingBtn.textContent = state.lineSpacingMode === 'normal' ? 'Interligne normal' : (state.lineSpacingMode === 'relaxed' ? 'Interligne moyen' : 'Interligne ample');
+  if (dom.widthToggleBtn) dom.widthToggleBtn.textContent = state.narrowLayout ? 'Largeur compacte' : 'Largeur standard';
+  if (dom.focusModeBtn) dom.focusModeBtn.textContent = state.focusMode ? 'Mode concentration : ON' : 'Mode concentration';
   dom.progressBarToggleBtn.textContent = state.showProgressBar ? "Masquer progression" : "Barre de progression";
   dom.docLabel.textContent = state.currentBook?.title || "Document";
   dom.prevBtn.disabled = state.currentPage <= 1;
@@ -2148,6 +2308,7 @@ async function renderCurrentPage({ forceFit = false } = {}) {
   dom.viewerShell.scrollTop = 0;
   dom.viewerShell.scrollTo({ top: 0, behavior: "instant" });
   window.scrollTo(0, 0);
+  state.currentPageEnteredAt = Date.now();
 }
 
 async function goToPage(pageNumber, { save = true, reason = "nav" } = {}) {
@@ -2155,6 +2316,7 @@ async function goToPage(pageNumber, { save = true, reason = "nav" } = {}) {
   const next = Math.max(1, Math.min(state.totalPages, Number(pageNumber) || 1));
   if (next === state.currentPage && save) return;
   const previous = state.currentPage;
+  flushCurrentPageJournal();
   if (reason === "bookmark") {
     markBookmarkArrival(next);
   } else {
@@ -2199,6 +2361,7 @@ async function openBook(book, options = {}) {
   switchScreen("reader");
   toggleMenu(false);
   setBookLoading(true, loadingMessage);
+  state.currentPageEnteredAt = 0;
 
   try {
     const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
@@ -2857,6 +3020,7 @@ async function finishLoginFlow(options = {}) {
     return;
   }
 
+  void syncOfflineQueue();
   if (!fromRestore && !loadedFromCache) showToast("Bibliothèque chargée");
 }
 
@@ -3489,6 +3653,7 @@ function attachEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       if (state.currentBook) saveCurrentBookState();
+      flushCurrentPageJournal();
       stopReadingTracking();
       saveProgress({ immediate: true, showError: false });
     } else if (state.currentBook) {
@@ -3498,16 +3663,20 @@ function attachEvents() {
   window.addEventListener("pagehide", () => {
     if (state.currentBook) {
       saveCurrentBookState();
+      flushCurrentPageJournal();
       stopReadingTracking();
     }
   });
   window.addEventListener("beforeunload", () => {
     if (state.currentBook) {
       saveCurrentBookState();
+      flushCurrentPageJournal();
       stopReadingTracking();
       saveProgress({ immediate: true, showError: false });
     }
   });
+
+    window.addEventListener("online", () => { void syncOfflineQueue(); });
 
   // Keyboard navigation dans le lecteur
   document.addEventListener("keydown", (e) => {
@@ -3528,6 +3697,7 @@ function attachEvents() {
 // ════════════════════════════════════════
 async function init() {
   cleanLoginQueryFromUrl();
+  loadOfflineQueue();
   blockEasyActions();
   attachEvents();
   initInstallBanner();
@@ -3550,6 +3720,7 @@ async function init() {
       if (state.adminUnlocked) setPublishStatus("Module administrateur déverrouillé", true);
       await finishLoginFlow({ attemptRestore: true, fromRestore: true });
       void revalidateSessionInBackground();
+      void syncOfflineQueue();
       return;
     } catch (_) {
       clearSession();
