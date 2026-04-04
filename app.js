@@ -1362,7 +1362,7 @@ function renderAdminBooks() {
             ${renderOpenBookButton(book.bookId, "Ouvrir", "secondary-btn")}
             <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
             <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.pdfAllowed ? "PDF : OUI" : "PDF : NON"}</button>
-            <button class="ghost-btn admin-edit-btn${isEditBusy ? " is-loading" : ""}" type="button" data-edit-book="${escapeHtml(book.bookId)}"${isEditBusy ? " disabled aria-busy="true"" : ""}>
+            <button class="ghost-btn admin-edit-btn${isEditBusy ? " is-loading" : ""}" type="button" data-edit-book="${escapeHtml(book.bookId)}"${isEditBusy ? " disabled aria-busy=\"true\"" : ""}>
               ${isEditBusy ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>` : "Modifier"}
             </button>
           </div>
