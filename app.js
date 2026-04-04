@@ -393,11 +393,7 @@ function normalizeAssignedEmailList(value) {
   if (Array.isArray(value)) {
     return [...new Set(value.map((item) => normalizeEmail(item)).filter((item) => isValidEmail(item)))];
   }
-  return [...new Set(String(value || "")
-    .split(/[
-,;]+/)
-    .map((item) => normalizeEmail(item))
-    .filter((item) => isValidEmail(item)))];
+  PLACEHOLDER
 }
 
 function getAssignableUserDisplay(user) {
