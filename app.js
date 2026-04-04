@@ -355,6 +355,9 @@ function buildBookSnapshot(book) {
     hiddenPageRanges: book.hiddenPageRanges || "",
     restrictedAccess: !!book.restrictedAccess,
     assignedEmails: Array.isArray(book.assignedEmails) ? [...book.assignedEmails] : [],
+    visiblePageCount: Number(book.visiblePageCount) || 0,
+    hiddenPagesCount: Number(book.hiddenPagesCount) || 0,
+    hiddenPagesList: Array.isArray(book.hiddenPagesList) ? [...book.hiddenPagesList] : [],
   };
 }
 
@@ -1864,7 +1867,7 @@ async function saveEditBook() {
       if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = "";
     }, 450);
     showToast("Livre modifié");
-    await refreshBooks();
+    await refreshBooks().catch((error) => { console.error(error); });
   } catch (error) {
     console.error(error);
     dom.editBookStatus.textContent = error.message || "Erreur lors de la modification.";
