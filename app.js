@@ -2072,8 +2072,27 @@ function toggleFocusMode() {
   showToast(state.focusMode ? 'Mode concentration activé' : 'Mode concentration désactivé');
 }
 
+function getEffectiveBookStatus(book) {
+  const explicitStatus = String(book?.readingStatus || '').trim();
+  if (explicitStatus === 'completed' || explicitStatus === 'started' || explicitStatus === 'not_started') {
+    return explicitStatus;
+  }
+  const visiblePages = Number(book?.visiblePageCount) || Number(book?.totalPages) || 0;
+  const currentPage = Number(book?.currentPage) || 0;
+  const progressPercent = Number(book?.progressPercent) || 0;
+  const hasOpened = !!(book?.lastOpenedAt || book?.firstOpenedAt || book?.lastUpdated || book?.progressLastUpdated);
+  const hasReadingActivity = hasOpened
+    || currentPage > 0
+    || progressPercent > 0
+    || Number(book?.bookmarksCount) > 0
+    || Number(book?.notesCount) > 0;
+  if ((visiblePages > 0 && currentPage >= visiblePages) || progressPercent >= 99.5) return 'completed';
+  if (hasReadingActivity) return 'started';
+  return 'not_started';
+}
+
 function getBookStatusLabel(book) {
-  const status = String(book?.readingStatus || 'not_started');
+  const status = getEffectiveBookStatus(book);
   if (status === 'completed') return 'Terminé';
   if (status === 'started') return 'Commencé';
   return 'Non ouvert';
@@ -2211,7 +2230,7 @@ function renderBookList() {
         <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
         <p class="book-meta">${getVisibleBookPageCount(book) ? `${getVisibleBookPageCount(book)} pages` : "Nombre de pages inconnu"}</p>
         <div class="library-book-stats">
-          <span class="library-stat-chip status-${escapeHtml(String(book.readingStatus || 'not_started'))}">${escapeHtml(getBookStatusLabel(book))}</span>
+          <span class="library-stat-chip status-${escapeHtml(getEffectiveBookStatus(book))}">${escapeHtml(getBookStatusLabel(book))}</span>
           ${Number(book.progressPercent) ? `<span class="library-stat-chip">${Math.round(Number(book.progressPercent) || 0)} %</span>` : ''}
           ${Number(book.bookmarksCount) ? `<span class="library-stat-chip">${Number(book.bookmarksCount)} signet(s)</span>` : ''}
           ${Number(book.notesCount) ? `<span class="library-stat-chip">${Number(book.notesCount)} note(s)</span>` : ''}
