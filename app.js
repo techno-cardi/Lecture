@@ -2098,6 +2098,35 @@ function getBookStatusLabel(book) {
   return 'Non ouvert';
 }
 
+function getBookActivityMeta(book) {
+  if (book?.lastOpenedAt) {
+    return `Dernière ouverture: ${formatDateTime(book.lastOpenedAt)}`;
+  }
+  if (book?.firstOpenedAt) {
+    return `Première ouverture: ${formatDateTime(book.firstOpenedAt)}`;
+  }
+  const status = getEffectiveBookStatus(book);
+  const visiblePages = Number(book?.visiblePageCount) || Number(book?.totalPages) || 0;
+  const currentPage = Number(book?.currentPage) || 0;
+  const progressPercent = Number(book?.progressPercent) || 0;
+  if (status === 'completed') {
+    return visiblePages > 0 ? `Lecture terminée - page ${visiblePages} / ${visiblePages}` : 'Lecture terminée';
+  }
+  if (status === 'started') {
+    if (visiblePages > 0 && currentPage > 0) {
+      return `Progression: page ${currentPage} / ${visiblePages}`;
+    }
+    if (progressPercent > 0) {
+      return `Progression: ${Math.round(progressPercent)} %`;
+    }
+    if (Number(book?.bookmarksCount) > 0 || Number(book?.notesCount) > 0) {
+      return 'Lecture commencée';
+    }
+    return 'Activité de lecture détectée';
+  }
+  return 'Pas encore ouvert';
+}
+
 function formatSessionAverage(seconds) {
   return seconds ? formatReadingDuration(seconds) : '—';
 }
@@ -2235,7 +2264,7 @@ function renderBookList() {
           ${Number(book.bookmarksCount) ? `<span class="library-stat-chip">${Number(book.bookmarksCount)} signet(s)</span>` : ''}
           ${Number(book.notesCount) ? `<span class="library-stat-chip">${Number(book.notesCount)} note(s)</span>` : ''}
         </div>
-        <p class="book-meta">${book.lastOpenedAt ? `Dernière ouverture: ${escapeHtml(formatDateTime(book.lastOpenedAt))}` : 'Pas encore ouvert'}</p>
+        <p class="book-meta">${escapeHtml(getBookActivityMeta(book))}</p>
         <div class="book-actions">
           ${renderOpenBookButton(book.bookId, "Ouvrir", "nav-btn")}
         </div>
