@@ -86,6 +86,7 @@ const dom = {
   readingCheckSearchInput: document.getElementById("readingCheckSearchInput"),
   readingCheckSortSelect: document.getElementById("readingCheckSortSelect"),
   readingCheckStatus: document.getElementById("readingCheckStatus"),
+  readingCheckShowExternalInput: document.getElementById("readingCheckShowExternalInput"),
   readingCheckUserList: document.getElementById("readingCheckUserList"),
   readingCheckDetails: document.getElementById("readingCheckDetails"),
   bookReviewModal: document.getElementById("bookReviewModal"),
@@ -229,6 +230,7 @@ const state = {
   readingCheckData: null,
   loadingReadingCheckEmail: "",
   readingCheckSortMode: "name",
+  readingCheckShowExternal: false,
   selectedBookReviewEmail: "",
   bookReviewData: null,
   loadingBookReviewId: "",
@@ -310,6 +312,10 @@ function getReadingCheckUserName(user) {
 
 function isStudentDomainEmail(email) {
   return /@educ\.cscapitale\.qc\.ca$/i.test(String(email || "").trim());
+}
+
+function isInternalCscapitaleEmail(email) {
+  return /@(educ\.)?cscapitale\.qc\.ca$/i.test(String(email || "").trim());
 }
 
 function getBookReviewUserName(user) {
@@ -484,6 +490,7 @@ function resetAdminState() {
   state.bookReviewShowExternal = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
   if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = "name";
   if (dom.bookReviewFilterSelect) dom.bookReviewFilterSelect.value = "all";
@@ -734,6 +741,7 @@ async function loadAssignableUsers(force = false) {
       email: normalizeEmail(user.email || ""),
       firstName: normalizePersonName(user.firstName || ""),
       lastName: normalizePersonName(user.lastName || ""),
+      isExternal: !isInternalCscapitaleEmail(user.email || ""),
     })).filter((user) => user.email) : [];
     renderAssignableUsers("publish");
     renderAssignableUsers("edit");
@@ -765,9 +773,12 @@ function updateAssignmentSelection(kind, email, checked) {
 function getSortedReadingCheckUsers() {
   const query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
   const sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
+  const showExternal = !!dom.readingCheckShowExternalInput?.checked;
   state.readingCheckSortMode = sortMode;
+  state.readingCheckShowExternal = showExternal;
   return [...state.assignableUsers]
     .filter((user) => {
+      if (!showExternal && user.isExternal) return false;
       if (!query) return true;
       const haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
       return haystack.includes(query);
@@ -792,10 +803,13 @@ function renderReadingCheckUserList() {
   }
   dom.readingCheckUserList.innerHTML = users.map((user) => {
     const active = state.selectedReadingCheckEmail === user.email;
+    const displayName = getReadingCheckUserName(user);
+    const showEmail = normalizeEmail(displayName) !== normalizeEmail(user.email);
     return `
       <button class="reading-check-user-btn${active ? " is-active" : ""}" type="button" data-reading-check-email="${escapeHtml(user.email)}">
-        <span class="reading-check-user-name">${escapeHtml(getReadingCheckUserName(user))}</span>
-        <span class="reading-check-user-email">${escapeHtml(user.email)}</span>
+        <span class="reading-check-user-name">${escapeHtml(displayName)}</span>
+        ${showEmail ? `<span class="reading-check-user-email">${escapeHtml(user.email)}</span>` : ""}
+        ${user.isExternal ? `<span class="badge hidden reading-check-external-badge">Externe</span>` : ""}
       </button>
     `;
   }).join("");
@@ -966,6 +980,7 @@ async function openReadingCheckModal() {
   if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = false;
   state.readingCheckSortMode = dom.readingCheckSortSelect?.value || "name";
+  state.readingCheckShowExternal = !!dom.readingCheckShowExternalInput?.checked;
   if (dom.readingCheckStatus) {
     dom.readingCheckStatus.className = "save-status reading-check-status";
     dom.readingCheckStatus.textContent = "";
@@ -3579,6 +3594,7 @@ function attachEvents() {
   on(dom.readingCheckModal, "click", (e) => { if (e.target === dom.readingCheckModal) closeReadingCheckModal(); });
   on(dom.readingCheckSearchInput, "input", renderReadingCheckUserList);
   on(dom.readingCheckSortSelect, "change", renderReadingCheckUserList);
+  on(dom.readingCheckShowExternalInput, "change", renderReadingCheckUserList);
   on(dom.readingCheckUserList, "click", (e) => {
     const btn = e.target.closest("[data-reading-check-email]");
     if (!btn) return;
