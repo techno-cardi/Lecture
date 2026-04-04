@@ -1208,7 +1208,7 @@ function coverHtml(book, className = "book-cover") {
 function renderOpenBookButton(bookId, label = "Ouvrir", className = "nav-btn") {
   const isOpening = state.openingBookId && state.openingBookId === bookId;
   return `
-    <button class="${className} book-open-btn${isOpening ? " is-loading" : ""}" type="button" data-open-book="${escapeHtml(bookId)}"${isOpening ? " disabled aria-busy="true"" : ""}>
+    <button class="${className} book-open-btn${isOpening ? " is-loading" : ""}" type="button" data-open-book="${escapeHtml(bookId)}"${isOpening ? " disabled aria-busy=\"true\"" : ""}>
       ${isOpening
         ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>`
         : escapeHtml(label)}
