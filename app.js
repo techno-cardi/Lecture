@@ -1376,6 +1376,10 @@ function getSourcePageNumber(displayPageNumber) {
   return state.visiblePages[Math.max(0, (Number(displayPageNumber) || 1) - 1)] || displayPageNumber;
 }
 
+function getSourcePageForDisplayPage(displayPageNumber) {
+  return getSourcePageNumber(displayPageNumber);
+}
+
 async function resolveBookForOpening(book) {
   const fallbackBook = buildBookSnapshot(book) || book;
   if (!fallbackBook?.bookId) return fallbackBook;
