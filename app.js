@@ -449,14 +449,12 @@ async function triggerInstallShortcut() {
     updateInstallShortcutVisibility();
     return;
   }
-  // Pas de prompt natif : afficher des instructions contextuelles claires.
-  if (isIOSDevice()) {
-    showManualInstallHint();
-    showToast('Appuie sur Partager ↑ puis « Sur l\'écran d\'accueil »');
-  } else {
-    showManualInstallHint();
-    showToast("Utilise le menu ⋮ du navigateur → Installer l'application");
-  }
+  showManualInstallHint();
+  showToast(
+    isIOSDevice()
+      ? "Appuie sur Partager puis Sur l'écran d'accueil."
+      : "Utilise le menu du navigateur puis Installer l'application."
+  );
 }
 
 function setAdminUnlockStatus(message = "", kind = "") {
@@ -3086,27 +3084,80 @@ async function finishLoginFlow(options = {}) {
   applyAdminVisibility();
   saveSession();
 
+  const firstName = getUserFirstName();
   const savedBookState = attemptRestore ? readCurrentBookState() : null;
   const wantsDirectRestore = !!savedBookState?.bookId;
-  const bookLoadingMessage = "Chargement du livre en cours. Veuillez patienter.";
-  const libraryLoadingMessage = "Chargement de la bibliothèque en cours. Merci de patienter.";
+  const libraryLoadingMessage = firstName
+    ? `Bienvenue ${firstName}! Chargement de la bibliothèque en cours. Merci de patienter.`
+    : "Chargement de la bibliothèque en cours. Merci de patienter.";
+  const readerLoadingMessage = "Chargement du livre en cours. Veuillez patienter.";
+  const cachedBooks = readBooksCache();
+  const savedBook = buildBookSnapshot(savedBookState?.book);
 
   if (wantsDirectRestore) {
-    // Alimenter la liste de livres depuis le cache immédiatement
-    // pour ne pas attendre un appel réseau avant d'ouvrir le livre.
-    const cached = readBooksCache();
-    if (cached?.books?.length) {
-      state.books = cached.books.map(buildBookSnapshot).filter(Boolean);
-    }
     switchScreen("reader");
     toggleMenu(false);
-    setBookLoading(true, bookLoadingMessage);
+    setBookLoading(true, readerLoadingMessage);
     setSaveStatus("Chargement...");
+
+    if (cachedBooks?.books?.length) {
+      state.books = cachedBooks.books;
+      renderBookList();
+      renderAdminBooks();
+    } else if (savedBook) {
+      state.books = [savedBook];
+      renderBookList();
+      renderAdminBooks();
+    }
+
+    if (state.books.length) {
+      try {
+        const restored = await maybeRestoreCurrentBook(savedBookState);
+        if (restored) {
+          void refreshBooks().catch((error) => {
+            console.error(error);
+          });
+          void syncOfflineQueue();
+          return;
+        }
+      } catch (error) {
+        if (!fromRestore) throw error;
+        showToast("Impossible de rouvrir le dernier livre");
+      } finally {
+        if (!state.currentBook) setBookLoading(false);
+      }
+    }
+  } else {
+    switchScreen("library");
+    renderLibraryLoadingState(libraryLoadingMessage);
+  }
+
+  let loadedFromCache = false;
+  try {
+    await refreshBooks();
+  } catch (error) {
+    if (!fromRestore && !wantsDirectRestore) {
+      throw error;
+    }
+    if (cachedBooks?.books?.length) {
+      state.books = cachedBooks.books;
+    } else if (savedBook) {
+      state.books = [savedBook];
+    } else {
+      throw error;
+    }
+    renderBookList();
+    renderAdminBooks();
+    loadedFromCache = true;
+    if (!wantsDirectRestore) {
+      showToast("Bibliothèque restaurée à partir de la dernière session");
+    }
+  }
+
+  if (wantsDirectRestore) {
     try {
       const restored = await maybeRestoreCurrentBook(savedBookState);
       if (restored) {
-        // Actualiser la bibliothèque en arrière-plan une fois le livre ouvert.
-        void refreshBooks().catch(() => {});
         void syncOfflineQueue();
         return;
       }
@@ -3119,33 +3170,7 @@ async function finishLoginFlow(options = {}) {
     switchScreen("library");
     renderBookList();
     renderAdminBooks();
-  } else {
-    switchScreen("library");
-    renderLibraryLoadingState(libraryLoadingMessage);
-  }
-
-  let loadedFromCache = false;
-  try {
-    await refreshBooks();
-  } catch (error) {
-    const cached = readBooksCache();
-    const savedBook = buildBookSnapshot(savedBookState?.book);
-    if (!fromRestore && !wantsDirectRestore) {
-      throw error;
-    }
-    if (cached?.books?.length) {
-      state.books = cached.books;
-    } else if (savedBook) {
-      state.books = [savedBook];
-    } else {
-      throw error;
-    }
-    renderBookList();
-    renderAdminBooks();
-    loadedFromCache = true;
-    if (!wantsDirectRestore) {
-      showToast("Bibliothèque restaurée à partir de la dernière session");
-    }
+    return;
   }
 
   void syncOfflineQueue();
@@ -3260,9 +3285,6 @@ async function handleLogin(event) {
     } else {
       localStorage.removeItem(LS_EMAIL_KEY);
     }
-
-    const firstName = getUserFirstName();
-    setGateBusy(true, "Chargement de la bibliothèque en cours. Veuillez patienter.");
 
     saveSession();
 
@@ -3516,7 +3538,7 @@ function attachEvents() {
   // Lecteur — retour
   on(dom.backToLibraryBtn, "click", async () => {
     toggleMenu(false);
-    setBookLoading(true, "Chargement du livre en cours. Veuillez patienter.");
+    setBookLoading(true, "Chargement en cours. Veuillez patienter.");
     try {
       stopReadingTracking();
       await saveProgress({ immediate: true, showError: false });
