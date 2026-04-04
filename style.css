@@ -414,6 +414,17 @@ textarea,
   animation: spin 0.8s linear infinite;
   flex: 0 0 auto;
 }
+.book-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.book-open-btn.is-loading,
+.book-open-btn:disabled {
+  opacity: 0.72;
+  cursor: default;
+}
 .bookmark-list, .notes-list { display: grid; gap: 8px; margin-top: 8px; }
 .bookmark-chip, .note-card {
   display: flex; justify-content: space-between;

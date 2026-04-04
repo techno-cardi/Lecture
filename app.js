@@ -191,6 +191,7 @@ const state = {
   assignableUsers: [],
   publishAssignedEmails: [],
   editAssignedEmails: [],
+  openingBookId: "",
 };
 
 // ════════════════════════════════════════
@@ -1204,6 +1205,17 @@ function coverHtml(book, className = "book-cover") {
   return `<div class="cover-placeholder">${escapeHtml((book.title || "?").trim().slice(0, 1).toUpperCase())}</div>`;
 }
 
+function renderOpenBookButton(bookId, label = "Ouvrir", className = "nav-btn") {
+  const isOpening = state.openingBookId && state.openingBookId === bookId;
+  return `
+    <button class="${className} book-open-btn${isOpening ? " is-loading" : ""}" type="button" data-open-book="${escapeHtml(bookId)}"${isOpening ? " disabled aria-busy="true"" : ""}>
+      ${isOpening
+        ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>`
+        : escapeHtml(label)}
+    </button>
+  `;
+}
+
 function renderBookList() {
   if (!state.authVerified) {
     dom.bookList.innerHTML = "";
@@ -1227,7 +1239,7 @@ function renderBookList() {
         <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
         <p class="book-meta">${getVisibleBookPageCount(book) ? `${getVisibleBookPageCount(book)} pages` : "Nombre de pages inconnu"}</p>
         <div class="book-actions">
-          <button class="nav-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+          ${renderOpenBookButton(book.bookId, "Ouvrir", "nav-btn")}
         </div>
       </div>
     </article>
@@ -1256,7 +1268,7 @@ function renderAdminBooks() {
         <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
         <p>${book.totalPages ? `${book.totalPages} pages` : "Pages inconnues"}</p>
         <div class="admin-book-actions">
-          <button class="secondary-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
+          ${renderOpenBookButton(book.bookId, "Ouvrir", "secondary-btn")}
           <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
           <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.pdfAllowed ? "PDF : OUI" : "PDF : NON"}</button>
           <button class="ghost-btn" type="button" data-edit-book="${escapeHtml(book.bookId)}">Modifier</button>
@@ -2065,9 +2077,9 @@ function logoutToGate() {
   switchScreen("gate");
 }
 
-async function maybeRestoreCurrentBook() {
+async function maybeRestoreCurrentBook(savedState = null) {
   if (!state.authVerified || !state.email) return false;
-  const saved = readCurrentBookState();
+  const saved = savedState || readCurrentBookState();
   if (!saved?.bookId) return false;
   const book = getBookById(saved.bookId) || buildBookSnapshot(saved.book);
   if (!book) return false;
@@ -2088,23 +2100,37 @@ async function finishLoginFlow(options = {}) {
     logoutToGate();
     return;
   }
+
   applyAdminVisibility();
   saveSession();
-  switchScreen("library");
+
   const firstName = getUserFirstName();
-  const loadingMessage = firstName
+  const savedBookState = attemptRestore ? readCurrentBookState() : null;
+  const wantsDirectRestore = !!savedBookState?.bookId;
+  const libraryLoadingMessage = firstName
     ? `Bienvenue ${firstName}! Chargement de la bibliothèque en cours. Merci de patienter.`
     : "Chargement de la bibliothèque en cours. Merci de patienter.";
-  renderLibraryLoadingState(loadingMessage);
+  const readerLoadingMessage = firstName
+    ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
+    : "Chargement du livre en cours…";
+
+  if (wantsDirectRestore) {
+    switchScreen("reader");
+    toggleMenu(false);
+    setBookLoading(true, readerLoadingMessage);
+    setSaveStatus("Chargement...");
+  } else {
+    switchScreen("library");
+    renderLibraryLoadingState(libraryLoadingMessage);
+  }
 
   let loadedFromCache = false;
   try {
     await refreshBooks();
   } catch (error) {
     const cached = readBooksCache();
-    const savedBookState = readCurrentBookState();
     const savedBook = buildBookSnapshot(savedBookState?.book);
-    if (!fromRestore) {
+    if (!fromRestore && !wantsDirectRestore) {
       throw error;
     }
     if (cached?.books?.length) {
@@ -2117,19 +2143,27 @@ async function finishLoginFlow(options = {}) {
     renderBookList();
     renderAdminBooks();
     loadedFromCache = true;
-    showToast("Bibliothèque restaurée à partir de la dernière session");
+    if (!wantsDirectRestore) {
+      showToast("Bibliothèque restaurée à partir de la dernière session");
+    }
   }
 
-  if (attemptRestore) {
+  if (wantsDirectRestore) {
     try {
-      const restored = await maybeRestoreCurrentBook();
+      const restored = await maybeRestoreCurrentBook(savedBookState);
       if (restored) return;
     } catch (error) {
       if (!fromRestore) throw error;
-      switchScreen("library");
       showToast("Impossible de rouvrir le dernier livre");
+    } finally {
+      if (!state.currentBook) setBookLoading(false);
     }
+    switchScreen("library");
+    renderBookList();
+    renderAdminBooks();
+    return;
   }
+
   if (!fromRestore && !loadedFromCache) showToast("Bibliothèque chargée");
 }
 
@@ -2265,8 +2299,10 @@ function attachSwipeEvents() {
   let startX = 0;
   let startY = 0;
   let startTime = 0;
+  let startScrollTop = 0;
   let swipeCandidate = false;
   let pinchStartDistance = 0;
+  let horizontalSwipeLock = false;
 
   dom.viewerShell.addEventListener("touchstart", (e) => {
     if (!dom.controlPanel.hidden) return;
@@ -2274,13 +2310,16 @@ function attachSwipeEvents() {
       state.pinchActive = true;
       pinchStartDistance = getTouchDistance(e.touches);
       swipeCandidate = false;
+      horizontalSwipeLock = false;
       return;
     }
     if (e.touches.length !== 1 || state.pinchActive) return;
     swipeCandidate = true;
+    horizontalSwipeLock = false;
     startX = e.touches[0].clientX;
     startY = e.touches[0].clientY;
     startTime = Date.now();
+    startScrollTop = dom.viewerShell.scrollTop;
   }, { passive: true });
 
   dom.viewerShell.addEventListener("touchmove", (e) => {
@@ -2291,17 +2330,20 @@ function attachSwipeEvents() {
         pinchStartDistance = currentDistance;
         state.pinchActive = true;
         swipeCandidate = false;
+        horizontalSwipeLock = false;
         return;
       }
       const ratio = currentDistance / pinchStartDistance;
       if (ratio > 1.12) {
         state.pinchActive = true;
         swipeCandidate = false;
+        horizontalSwipeLock = false;
         pinchStartDistance = currentDistance;
         updateFontOrZoom(1);
       } else if (ratio < 0.88) {
         state.pinchActive = true;
         swipeCandidate = false;
+        horizontalSwipeLock = false;
         pinchStartDistance = currentDistance;
         updateFontOrZoom(-1);
       }
@@ -2309,19 +2351,51 @@ function attachSwipeEvents() {
     }
     if (state.pinchActive) {
       swipeCandidate = false;
+      horizontalSwipeLock = false;
+      return;
     }
-  }, { passive: true });
+    if (!swipeCandidate || e.touches.length !== 1) return;
+
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    if (!horizontalSwipeLock && absDy > 18 && absDy > absDx * 0.9) {
+      swipeCandidate = false;
+      return;
+    }
+
+    if (absDx > 18 && absDx > absDy * 1.4) {
+      horizontalSwipeLock = true;
+      dom.viewerShell.scrollTop = startScrollTop;
+      e.preventDefault();
+      return;
+    }
+
+    if (horizontalSwipeLock) {
+      dom.viewerShell.scrollTop = startScrollTop;
+      e.preventDefault();
+    }
+  }, { passive: false });
 
   dom.viewerShell.addEventListener("touchend", (e) => {
     if (state.pinchActive) {
       if (!e.touches.length) {
         pinchStartDistance = 0;
+        horizontalSwipeLock = false;
         window.setTimeout(() => { state.pinchActive = false; }, 90);
       }
       return;
     }
-    if (!swipeCandidate || !e.changedTouches.length) return;
-    if (!dom.controlPanel.hidden) return;
+    if (!swipeCandidate || !e.changedTouches.length) {
+      horizontalSwipeLock = false;
+      return;
+    }
+    if (!dom.controlPanel.hidden) {
+      horizontalSwipeLock = false;
+      return;
+    }
 
     const dx = e.changedTouches[0].clientX - startX;
     const dy = e.changedTouches[0].clientY - startY;
@@ -2329,13 +2403,27 @@ function attachSwipeEvents() {
 
     swipeCandidate = false;
 
-    if (Math.abs(dx) < 78) return;
-    if (Math.abs(dy) > Math.min(54, Math.abs(dx) * 0.55)) return;
-    if (dt > 480) return;
-    if (Math.abs(dx) < Math.abs(dy) * 1.9) return;
+    if (!horizontalSwipeLock && Math.abs(dx) < 96) {
+      horizontalSwipeLock = false;
+      return;
+    }
+    if (Math.abs(dy) > Math.min(34, Math.abs(dx) * 0.28)) {
+      horizontalSwipeLock = false;
+      return;
+    }
+    if (dt > 420) {
+      horizontalSwipeLock = false;
+      return;
+    }
+    if (Math.abs(dx) < Math.abs(dy) * 2.8) {
+      horizontalSwipeLock = false;
+      return;
+    }
 
+    dom.viewerShell.scrollTop = 0;
     if (dx < 0) goToPage(state.currentPage + 1);
     else goToPage(state.currentPage - 1);
+    horizontalSwipeLock = false;
   }, { passive: true });
 }
 
@@ -2571,9 +2659,18 @@ function attachEvents() {
   // Délégations — bibliothèque
   dom.bookList.addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-open-book]");
-    if (!btn) return;
+    if (!btn || state.openingBookId) return;
     const book = getBookById(btn.dataset.openBook);
-    if (book) await openBook(book);
+    if (!book) return;
+    state.openingBookId = book.bookId;
+    renderBookList();
+    try {
+      await openBook(book);
+    } finally {
+      state.openingBookId = "";
+      if (!dom.library.hidden) renderBookList();
+      if (canSeeAdminPanel()) renderAdminBooks();
+    }
   });
 
   // Délégations — admin livres
@@ -2582,7 +2679,22 @@ function attachEvents() {
     const toggleBtn = e.target.closest("[data-toggle-book]");
     const pdfBtn = e.target.closest("[data-toggle-pdf]");
     const editBtn = e.target.closest("[data-edit-book]");
-    if (openBtn) { const b = getBookById(openBtn.dataset.openBook); if (b) await openBook(b); return; }
+    if (openBtn) {
+      if (state.openingBookId) return;
+      const b = getBookById(openBtn.dataset.openBook);
+      if (!b) return;
+      state.openingBookId = b.bookId;
+      renderAdminBooks();
+      if (!dom.library.hidden) renderBookList();
+      try {
+        await openBook(b);
+      } finally {
+        state.openingBookId = "";
+        if (!dom.library.hidden) renderBookList();
+        if (canSeeAdminPanel()) renderAdminBooks();
+      }
+      return;
+    }
     if (toggleBtn) { await toggleBookPublished(toggleBtn.dataset.toggleBook); return; }
     if (pdfBtn) { await toggleBookPdfAllowed(pdfBtn.dataset.togglePdf); return; }
     if (editBtn) { openEditBookModal(editBtn.dataset.editBook); }
