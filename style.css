@@ -605,6 +605,39 @@ textarea,
 .font-modal-hint { margin: 0; color: var(--muted); font-size: 0.88rem; text-align: center; }
 .font-modal-close-btn { width: 100%; }
 
+.page-jump-modal-panel {
+  max-width: 380px;
+  gap: 14px;
+}
+.page-jump-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.page-jump-row input {
+  width: 128px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 12px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 800;
+  font-size: 1.1rem;
+}
+.page-jump-total {
+  min-width: 72px;
+  font-weight: 800;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+.page-jump-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .book-loading-overlay {
   position: fixed;
   inset: 0;
@@ -661,6 +694,8 @@ textarea,
 .theme-night .font-modal-title, .theme-night .font-modal-preview { color: #e5edf8; }
 .theme-night .font-modal-btn { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
 .theme-night .font-modal-hint { color: #94a3b8; }
+.theme-night .page-jump-row input { background: rgba(255,255,255,0.06); color: #e5edf8; border-color: rgba(255,255,255,0.08); }
+.theme-night .page-jump-total { color: #cbd5e1; }
 .theme-night .bookmark-chip.active { background: rgba(37, 99, 235, 0.18); box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.2); }
 .theme-night .library-greeting,
 .theme-night .bookmark-chip-label { color: #cbd5e1; }

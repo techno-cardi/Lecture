@@ -327,6 +327,22 @@
       <div id="toast" class="toast" hidden></div>
     </section>
 
+
+    <!-- Modal aller à la page -->
+    <div id="pageJumpModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel page-jump-modal-panel">
+        <div class="font-modal-title">Aller à la page</div>
+        <div class="page-jump-row">
+          <input id="pageJumpInput" type="number" min="1" step="1" inputmode="numeric" aria-label="Numéro de page">
+          <div class="page-jump-total">/ <span id="pageJumpTotal">0</span></div>
+        </div>
+        <div class="page-jump-actions">
+          <button id="pageJumpGoBtn" class="nav-btn" type="button">Entrer</button>
+          <button id="pageJumpStayBtn" class="ghost-btn" type="button">Rester ici</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal taille du texte -->
     <div id="fontModal" class="font-modal-overlay" hidden>
       <div class="font-modal-panel">

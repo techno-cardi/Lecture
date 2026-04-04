@@ -130,6 +130,11 @@ const dom = {
   fontModalMinus: document.getElementById("fontModalMinus"),
   fontModalPlus: document.getElementById("fontModalPlus"),
   fontModalClose: document.getElementById("fontModalClose"),
+  pageJumpModal: document.getElementById("pageJumpModal"),
+  pageJumpInput: document.getElementById("pageJumpInput"),
+  pageJumpTotal: document.getElementById("pageJumpTotal"),
+  pageJumpGoBtn: document.getElementById("pageJumpGoBtn"),
+  pageJumpStayBtn: document.getElementById("pageJumpStayBtn"),
   toast: document.getElementById("toast"),
 };
 
@@ -419,6 +424,55 @@ function buildVisiblePages(totalPages, hiddenPageRanges = "") {
 function getSourcePageNumber(displayPageNumber) {
   if (!state.visiblePages?.length) return displayPageNumber;
   return state.visiblePages[Math.max(0, (Number(displayPageNumber) || 1) - 1)] || displayPageNumber;
+}
+
+async function resolveBookForOpening(book) {
+  const fallbackBook = buildBookSnapshot(book) || book;
+  if (!fallbackBook?.bookId || !state.authVerified) return fallbackBook;
+  try {
+    const response = await jsonp("listBooks", {
+      email: state.email,
+      adminCode: state.adminUnlocked ? state.adminCode : "",
+    });
+    if (!response?.ok) return fallbackBook;
+    const books = Array.isArray(response.books) ? response.books.map(buildBookSnapshot).filter(Boolean) : [];
+    if (books.length) {
+      state.books = books;
+      saveBooksCache();
+      if (!dom.library.hidden) {
+        renderBookList();
+        renderAdminBooks();
+      }
+      const latest = books.find((item) => item.bookId === fallbackBook.bookId);
+      if (latest) return latest;
+    }
+  } catch (_) {
+    // on retombe sur les métadonnées déjà connues
+  }
+  return fallbackBook;
+}
+
+function openPageJumpModal() {
+  if (!dom.pageJumpModal || !state.totalPages) return;
+  dom.pageJumpTotal.textContent = String(state.totalPages);
+  dom.pageJumpInput.max = String(state.totalPages);
+  dom.pageJumpInput.value = String(state.currentPage || 1);
+  dom.pageJumpModal.hidden = false;
+  window.setTimeout(() => {
+    dom.pageJumpInput.focus();
+    dom.pageJumpInput.select();
+  }, 30);
+}
+
+function closePageJumpModal() {
+  if (!dom.pageJumpModal) return;
+  dom.pageJumpModal.hidden = true;
+}
+
+async function submitPageJump() {
+  const targetPage = Math.max(1, Math.min(state.totalPages || 1, Number(dom.pageJumpInput.value) || state.currentPage || 1));
+  closePageJumpModal();
+  await goToPage(targetPage, { reason: "jump" });
 }
 
 function updateLibraryGreeting() {
@@ -1283,16 +1337,17 @@ async function goToPage(pageNumber, { save = true, reason = "nav" } = {}) {
 
 async function openBook(book, options = {}) {
   if (!state.authVerified || !book) throw new Error("Session invalide.");
+  const resolvedBook = await resolveBookForOpening(book);
   const firstName = getUserFirstName();
   const defaultLoadingMessage = firstName
     ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
     : "Chargement du livre en cours…";
   const { preferredPage = 0, loadingMessage = defaultLoadingMessage } = options;
   cancelActivePdfRender();
-  state.currentBook = book;
+  state.currentBook = resolvedBook;
   state.currentPage = 1;
-  state.totalPages = Number(book.totalPages) || 0;
-  state.sourceTotalPages = Number(book.totalPages) || 0;
+  state.totalPages = Number(resolvedBook.totalPages) || 0;
+  state.sourceTotalPages = Number(resolvedBook.totalPages) || 0;
   state.visiblePages = [];
   state.pdfDoc = null;
   state.textDoc = null;
@@ -1310,30 +1365,30 @@ async function openBook(book, options = {}) {
 
   try {
     const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
-      fetchProgress(book.bookId).catch(() => null),
-      jsonp("listBookmarks", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
-      jsonp("listNotes", { email: state.email, bookId: book.bookId }).catch(() => ({ ok: false })),
-      loadTextJson(book).catch(() => null),
+      fetchProgress(resolvedBook.bookId).catch(() => null),
+      jsonp("listBookmarks", { email: state.email, bookId: resolvedBook.bookId }).catch(() => ({ ok: false })),
+      jsonp("listNotes", { email: state.email, bookId: resolvedBook.bookId }).catch(() => ({ ok: false })),
+      loadTextJson(resolvedBook).catch(() => null),
     ]);
 
     state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
     state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
     state.textDoc = textDoc;
 
-    let sourceTotalPages = textDoc?.totalPages ? Number(textDoc.totalPages) || 0 : (Number(book.totalPages) || 0);
+    let sourceTotalPages = textDoc?.totalPages ? Number(textDoc.totalPages) || 0 : (Number(resolvedBook.totalPages) || 0);
     if (!sourceTotalPages || !textDoc) {
-      const pdfDoc = await loadPdfDocument(book);
+      const pdfDoc = await loadPdfDocument(resolvedBook);
       sourceTotalPages = pdfDoc.numPages;
     }
 
     state.sourceTotalPages = sourceTotalPages;
-    state.visiblePages = buildVisiblePages(sourceTotalPages, book.hiddenPageRanges || "");
+    state.visiblePages = buildVisiblePages(sourceTotalPages, resolvedBook.hiddenPageRanges || "");
     if (!state.visiblePages.length) {
       throw new Error("Toutes les pages de ce livre sont actuellement masquées.");
     }
     state.totalPages = state.visiblePages.length;
 
-    const pdfAllowed = !!book.pdfAllowed;
+    const pdfAllowed = !!resolvedBook.pdfAllowed;
     state.mode = textDoc ? (CONFIG.defaultReaderMode || "text") : (pdfAllowed ? "pdf" : "text");
     const serverPage = progress?.currentPage ? Number(progress.currentPage) : 1;
     const restoredPage = Number(preferredPage) || serverPage || 1;
@@ -1813,6 +1868,7 @@ function logoutToGate() {
   state.pdfZoomMultiplier = 1;
   dom.editBookModal.hidden = true;
   dom.profileModal.hidden = true;
+  if (dom.pageJumpModal) dom.pageJumpModal.hidden = true;
   dom.githubTestStatus.textContent = "";
   dom.profileStatus.textContent = "";
   dom.emailInput.value = localStorage.getItem(LS_EMAIL_KEY) || "";
@@ -2203,6 +2259,7 @@ function attachEvents() {
       await saveProgress({ immediate: true, showError: false });
       clearCurrentBookState();
       state.currentBook = null;
+      closePageJumpModal();
       switchScreen("library");
     } finally {
       setBookLoading(false);
@@ -2225,11 +2282,14 @@ function attachEvents() {
   // Navigation inférieure fixe
   dom.navPrevBtn.addEventListener("click", () => goToPage(state.currentPage - 1));
   dom.navNextBtn.addEventListener("click", () => goToPage(state.currentPage + 1));
-  dom.navPageBtn.addEventListener("click", () => {
-    // Basculer l'affichage progression / pages
-    state.progressMode = state.progressMode === "percent" ? "pages" : "percent";
-    localStorage.setItem(LS_PROGRESS_MODE_KEY, state.progressMode);
-    updateUiLabels();
+  dom.navPageBtn.addEventListener("click", openPageJumpModal);
+  dom.pageJumpGoBtn.addEventListener("click", submitPageJump);
+  dom.pageJumpStayBtn.addEventListener("click", closePageJumpModal);
+  dom.pageJumpInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); void submitPageJump(); }
+  });
+  dom.pageJumpModal.addEventListener("click", (e) => {
+    if (e.target === dom.pageJumpModal) closePageJumpModal();
   });
 
   // Barre de progression supérieure
@@ -2388,7 +2448,11 @@ function attachEvents() {
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
     if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); goToPage(state.currentPage + 1); }
     if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); goToPage(state.currentPage - 1); }
-    if (e.key === "Escape") { if (!dom.fontModal.hidden) { dom.fontModal.hidden = true; return; } toggleMenu(false); }
+    if (e.key === "Escape") {
+      if (!dom.pageJumpModal.hidden) { closePageJumpModal(); return; }
+      if (!dom.fontModal.hidden) { dom.fontModal.hidden = true; return; }
+      toggleMenu(false);
+    }
   });
 }
 
