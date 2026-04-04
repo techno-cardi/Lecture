@@ -78,6 +78,7 @@ const dom = {
   editBookAuthor: document.getElementById("editBookAuthor"),
   editBookDescription: document.getElementById("editBookDescription"),
   editBookHiddenPages: document.getElementById("editBookHiddenPages"),
+  editHiddenPagesSummary: document.getElementById("editHiddenPagesSummary"),
   editRestrictedAccessInput: document.getElementById("editRestrictedAccessInput"),
   editAssignWrap: document.getElementById("editAssignWrap"),
   editAssignedSearchInput: document.getElementById("editAssignedSearchInput"),
@@ -192,6 +193,7 @@ const state = {
   publishAssignedEmails: [],
   editAssignedEmails: [],
   openingBookId: "",
+  editBusyBookId: "",
 };
 
 // ════════════════════════════════════════
@@ -394,7 +396,86 @@ function normalizeAssignedEmailList(value) {
   if (Array.isArray(value)) {
     return [...new Set(value.map((item) => normalizeEmail(item)).filter((item) => isValidEmail(item)))];
   }
-  PLACEHOLDER
+  return String(value || "")
+    .split(/[\n,;]+/)
+    .map((item) => normalizeEmail(item))
+    .filter((item, index, array) => item && isValidEmail(item) && array.indexOf(item) === index);
+}
+
+function expandPageRanges(ranges, totalPages = 0) {
+  const total = Math.max(0, Number(totalPages) || 0);
+  const pages = [];
+  const seen = new Set();
+  String(ranges || "")
+    .split(/[;,]+/)
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .forEach((part) => {
+      const match = part.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (match) {
+        let start = Number(match[1]);
+        let end = Number(match[2]);
+        if (start > end) [start, end] = [end, start];
+        for (let page = start; page <= end; page += 1) {
+          if (page < 1) continue;
+          if (total && page > total) break;
+          if (!seen.has(page)) {
+            seen.add(page);
+            pages.push(page);
+          }
+        }
+        return;
+      }
+      const page = Number(part);
+      if (!Number.isFinite(page) || page < 1) return;
+      if (total && page > total) return;
+      if (!seen.has(page)) {
+        seen.add(page);
+        pages.push(page);
+      }
+    });
+  return pages.sort((a, b) => a - b);
+}
+
+function compressPageList(pageList = []) {
+  const pages = [...new Set((Array.isArray(pageList) ? pageList : []).map((item) => Number(item)).filter((item) => Number.isFinite(item) && item >= 1))].sort((a, b) => a - b);
+  if (!pages.length) return "";
+  const ranges = [];
+  let start = pages[0];
+  let previous = pages[0];
+  for (let index = 1; index < pages.length; index += 1) {
+    const current = pages[index];
+    if (current === previous + 1) {
+      previous = current;
+      continue;
+    }
+    ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+    start = current;
+    previous = current;
+  }
+  ranges.push(start === previous ? String(start) : `${start}-${previous}`);
+  return ranges.join(", ");
+}
+
+function renderHiddenPagesSummary(totalPages, hiddenPageRanges) {
+  if (!dom.editHiddenPagesSummary) return;
+  const total = Math.max(0, Number(totalPages) || 0);
+  const hiddenPages = expandPageRanges(hiddenPageRanges, total);
+  const visibleCount = Math.max(0, total - hiddenPages.length);
+  if (!hiddenPages.length) {
+    dom.editHiddenPagesSummary.innerHTML = total
+      ? `<div class="hidden-pages-stats">Pages affichées aux élèves: <strong>${visibleCount}</strong> / ${total}</div><div class="hidden-pages-empty">Aucune page masquée actuellement.</div>`
+      : `<div class="hidden-pages-empty">Aucune page masquée actuellement.</div>`;
+    return;
+  }
+  const preview = hiddenPages.length <= 24
+    ? hiddenPages.map((page) => `<span class="hidden-page-chip">${page}</span>`).join("")
+    : `<div class="hidden-pages-range-text">${escapeHtml(compressPageList(hiddenPages))}</div>`;
+  dom.editHiddenPagesSummary.innerHTML = `
+    <div class="hidden-pages-stats">Pages affichées aux élèves: <strong>${visibleCount}</strong> / ${total}</div>
+    <div class="hidden-pages-stats">Pages masquées: <strong>${hiddenPages.length}</strong></div>
+    <div class="hidden-pages-preview">${preview}</div>
+  `;
 }
 
 function getAssignableUserDisplay(user) {
@@ -1253,10 +1334,7 @@ function renderBookList() {
 }
 
 function renderAdminBooks() {
-  if (!canSeeAdminPanel()) {
-    dom.adminBooksList.innerHTML = "";
-    return;
-  }
+  if (!state.isAdminCandidate) return;
   if (!state.adminUnlocked) {
     dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour voir la gestion complète.</div>`;
     return;
@@ -1265,23 +1343,33 @@ function renderAdminBooks() {
     dom.adminBooksList.innerHTML = `<div class="empty-state">Aucun livre enregistré.</div>`;
     return;
   }
-  dom.adminBooksList.innerHTML = state.books.map((book) => `
-    <article class="admin-book-card">
-      ${coverHtml(book, "admin-book-cover")}
-      <div>
-        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Masqué"}</div>
-        <h4>${escapeHtml(book.title)}</h4>
-        <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
-        <p>${book.totalPages ? `${book.totalPages} pages` : "Pages inconnues"}</p>
-        <div class="admin-book-actions">
-          ${renderOpenBookButton(book.bookId, "Ouvrir", "secondary-btn")}
-          <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
-          <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.pdfAllowed ? "PDF : OUI" : "PDF : NON"}</button>
-          <button class="ghost-btn" type="button" data-edit-book="${escapeHtml(book.bookId)}">Modifier</button>
+  dom.adminBooksList.innerHTML = state.books.map((book) => {
+    const realPages = Number(book.totalPages) || 0;
+    const visiblePages = Number(book.visiblePageCount) || getVisibleBookPageCount(book);
+    const hiddenPagesCount = Math.max(0, realPages - visiblePages);
+    const isEditBusy = state.editBusyBookId && state.editBusyBookId === book.bookId;
+    return `
+      <article class="admin-book-card">
+        ${coverHtml(book, "admin-book-cover")}
+        <div>
+          <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Masqué"}</div>
+          <h4>${escapeHtml(book.title)}</h4>
+          <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
+          <p>${realPages ? `${realPages} pages réelles` : "Pages inconnues"}</p>
+          <p>${visiblePages ? `${visiblePages} pages affichées aux élèves` : "Pages visibles inconnues"}</p>
+          ${hiddenPagesCount ? `<p class="book-meta">${hiddenPagesCount} page(s) masquée(s)</p>` : ""}
+          <div class="admin-book-actions">
+            ${renderOpenBookButton(book.bookId, "Ouvrir", "secondary-btn")}
+            <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
+            <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.pdfAllowed ? "PDF : OUI" : "PDF : NON"}</button>
+            <button class="ghost-btn admin-edit-btn${isEditBusy ? " is-loading" : ""}" type="button" data-edit-book="${escapeHtml(book.bookId)}"${isEditBusy ? " disabled aria-busy="true"" : ""}>
+              ${isEditBusy ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>` : "Modifier"}
+            </button>
+          </div>
         </div>
-      </div>
-    </article>
-  `).join("");
+      </article>
+    `;
+  }).join("");
 }
 
 // ════════════════════════════════════════
@@ -1710,20 +1798,28 @@ async function toggleBookPdfAllowed(bookId) {
 // Change 6: Edit book metadata
 async function openEditBookModal(bookId) {
   if (!canSeeAdminPanel() || !state.adminUnlocked) return;
-  await loadAssignableUsers();
-  const book = getBookById(bookId);
-  if (!book) return;
-  dom.editBookId.value = book.bookId;
-  dom.editBookTitle.value = book.title || "";
-  dom.editBookAuthor.value = book.author || "";
-  dom.editBookDescription.value = book.description || "";
-  dom.editBookHiddenPages.value = book.hiddenPageRanges || "";
-  dom.editRestrictedAccessInput.checked = !!book.restrictedAccess;
-  state.editAssignedEmails = normalizeAssignedEmailList(book.assignedEmails || []);
-  dom.editAssignedSearchInput.value = "";
-  dom.editBookStatus.textContent = "";
-  renderAssignableUsers("edit");
-  dom.editBookModal.hidden = false;
+  state.editBusyBookId = bookId;
+  renderAdminBooks();
+  try {
+    await loadAssignableUsers();
+    const book = getBookById(bookId);
+    if (!book) return;
+    dom.editBookId.value = book.bookId;
+    dom.editBookTitle.value = book.title || "";
+    dom.editBookAuthor.value = book.author || "";
+    dom.editBookDescription.value = book.description || "";
+    dom.editBookHiddenPages.value = book.hiddenPageRanges || "";
+    dom.editRestrictedAccessInput.checked = !!book.restrictedAccess;
+    state.editAssignedEmails = normalizeAssignedEmailList(book.assignedEmails || []);
+    dom.editAssignedSearchInput.value = "";
+    dom.editBookStatus.textContent = "";
+    renderAssignableUsers("edit");
+    renderHiddenPagesSummary(Number(book.totalPages) || 0, book.hiddenPageRanges || "");
+    dom.editBookModal.hidden = false;
+  } finally {
+    state.editBusyBookId = "";
+    if (canSeeAdminPanel()) renderAdminBooks();
+  }
 }
 
 async function saveEditBook() {
@@ -1738,10 +1834,13 @@ async function saveEditBook() {
   const hiddenPageRanges = dom.editBookHiddenPages.value.trim();
   const restrictedAccess = !!dom.editRestrictedAccessInput.checked;
   const assignedEmails = normalizeAssignedEmailList(state.editAssignedEmails);
+  const currentBook = getBookById(bookId);
+  const totalPages = Number(currentBook?.totalPages) || 0;
   if (!title) { dom.editBookStatus.textContent = "Le titre est requis."; return; }
   if (restrictedAccess && !assignedEmails.length) { dom.editBookStatus.textContent = "Choisis au moins un utilisateur."; return; }
   dom.editBookSaveBtn.disabled = true;
   dom.editBookStatus.textContent = "Enregistrement…";
+  renderHiddenPagesSummary(totalPages, hiddenPageRanges);
   try {
     const response = await jsonp("updateBook", {
       email: state.email, adminCode: state.adminCode,
@@ -1750,9 +1849,22 @@ async function saveEditBook() {
       assignedEmails: assignedEmails.join(","),
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible de modifier le livre.");
-    dom.editBookModal.hidden = true;
-    await refreshBooks();
+    if (response.book?.bookId) {
+      const nextBook = buildBookSnapshot(response.book);
+      state.books = state.books.map((book) => (book.bookId === nextBook.bookId ? nextBook : book));
+      saveBooksCache();
+      renderBookList();
+      renderAdminBooks();
+      renderHiddenPagesSummary(Number(nextBook.totalPages) || totalPages, nextBook.hiddenPageRanges || hiddenPageRanges);
+    }
+    dom.editBookStatus.textContent = "Livre modifié.";
+    window.setTimeout(() => {
+      dom.editBookModal.hidden = true;
+      dom.editBookStatus.textContent = "";
+      if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = "";
+    }, 450);
     showToast("Livre modifié");
+    await refreshBooks();
   } catch (error) {
     console.error(error);
     dom.editBookStatus.textContent = error.message || "Erreur lors de la modification.";
@@ -2638,17 +2750,22 @@ function attachEvents() {
   on(dom.reloadAdminBooksBtn, "click", refreshBooks);
   on(dom.addUsersBtn, "click", addUsersInBulk);
   on(dom.editBookSaveBtn, "click", saveEditBook);
-  on(dom.editBookCancelBtn, "click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; });
+  on(dom.editBookCancelBtn, "click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = ""; });
   on(dom.editBookModal, "click", (e) => {
     if (e.target === dom.editBookModal) {
       dom.editBookModal.hidden = true;
       dom.editBookStatus.textContent = "";
+      if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = "";
     }
   });
   on(dom.publishRestrictedAccessInput, "change", () => handleAssignmentToggle("publish", dom.publishRestrictedAccessInput.checked));
   on(dom.editRestrictedAccessInput, "change", () => handleAssignmentToggle("edit", dom.editRestrictedAccessInput.checked));
   on(dom.publishAssignedSearchInput, "input", () => renderAssignableUsers("publish"));
   on(dom.editAssignedSearchInput, "input", () => renderAssignableUsers("edit"));
+  on(dom.editBookHiddenPages, "input", () => {
+    const book = getBookById(dom.editBookId?.value || "");
+    renderHiddenPagesSummary(Number(book?.totalPages) || 0, dom.editBookHiddenPages?.value || "");
+  });
   on(dom.publishAssignedList, "change", (e) => {
     const input = e.target.closest("[data-assignment-email]");
     if (!input) return;
@@ -2705,7 +2822,7 @@ function attachEvents() {
     }
     if (toggleBtn) { await toggleBookPublished(toggleBtn.dataset.toggleBook); return; }
     if (pdfBtn) { await toggleBookPdfAllowed(pdfBtn.dataset.togglePdf); return; }
-    if (editBtn) { openEditBookModal(editBtn.dataset.editBook); }
+    if (editBtn) { await openEditBookModal(editBtn.dataset.editBook); }
   });
 
   // Délégations — signets
