@@ -53,6 +53,11 @@ const dom = {
   bookPdfInput: document.getElementById("bookPdfInput"),
   bookCoverInput: document.getElementById("bookCoverInput"),
   publishNowInput: document.getElementById("publishNowInput"),
+  publishRestrictedAccessInput: document.getElementById("publishRestrictedAccessInput"),
+  publishAssignWrap: document.getElementById("publishAssignWrap"),
+  publishAssignedSearchInput: document.getElementById("publishAssignedSearchInput"),
+  publishAssignedSummary: document.getElementById("publishAssignedSummary"),
+  publishAssignedList: document.getElementById("publishAssignedList"),
   publishBtn: document.getElementById("publishBtn"),
   publishStatus: document.getElementById("publishStatus"),
   publishProgress: document.getElementById("publishProgress"),
@@ -73,6 +78,11 @@ const dom = {
   editBookAuthor: document.getElementById("editBookAuthor"),
   editBookDescription: document.getElementById("editBookDescription"),
   editBookHiddenPages: document.getElementById("editBookHiddenPages"),
+  editRestrictedAccessInput: document.getElementById("editRestrictedAccessInput"),
+  editAssignWrap: document.getElementById("editAssignWrap"),
+  editAssignedSearchInput: document.getElementById("editAssignedSearchInput"),
+  editAssignedSummary: document.getElementById("editAssignedSummary"),
+  editAssignedList: document.getElementById("editAssignedList"),
   editBookId: document.getElementById("editBookId"),
   editBookSaveBtn: document.getElementById("editBookSaveBtn"),
   editBookCancelBtn: document.getElementById("editBookCancelBtn"),
@@ -178,6 +188,9 @@ const state = {
   authVerified: false,
   bookmarkActionBusy: false,
   currentPdfRenderTask: null,
+  assignableUsers: [],
+  publishAssignedEmails: [],
+  editAssignedEmails: [],
 };
 
 // ════════════════════════════════════════
@@ -299,6 +312,9 @@ function resetAdminState() {
   state.isAdminCandidate = false;
   state.adminUnlocked = false;
   state.adminCode = "";
+  state.assignableUsers = [];
+  state.publishAssignedEmails = [];
+  state.editAssignedEmails = [];
   dom.adminCodeInput.value = "";
   applyAdminVisibility();
   setPublishStatus("En attente");
@@ -334,6 +350,8 @@ function buildBookSnapshot(book) {
     lastUpdatedBy: book.lastUpdatedBy || "",
     pdfAllowed: !!book.pdfAllowed,
     hiddenPageRanges: book.hiddenPageRanges || "",
+    restrictedAccess: !!book.restrictedAccess,
+    assignedEmails: Array.isArray(book.assignedEmails) ? [...book.assignedEmails] : [],
   };
 }
 
@@ -365,11 +383,133 @@ function clearBooksCache() {
   try { localStorage.removeItem(LS_BOOKS_CACHE_KEY); } catch (_) {}
 }
 
+function getVisibleBookPageCount(book) {
+  const total = Number(book?.totalPages) || 0;
+  if (!total) return 0;
+  return buildVisiblePages(total, book?.hiddenPageRanges || "").length;
+}
+
+function normalizeAssignedEmailList(value) {
+  if (Array.isArray(value)) {
+    return [...new Set(value.map((item) => normalizeEmail(item)).filter((item) => isValidEmail(item)))];
+  }
+  return [...new Set(String(value || "")
+    .split(/[
+,;]+/)
+    .map((item) => normalizeEmail(item))
+    .filter((item) => isValidEmail(item)))];
+}
+
+function getAssignableUserDisplay(user) {
+  const fullName = [user?.firstName, user?.lastName].map((item) => String(item || "").trim()).filter(Boolean).join(" ");
+  return fullName || String(user?.email || "");
+}
+
+function renderAssignableUsers(kind) {
+  const isEdit = kind === "edit";
+  const wrap = isEdit ? dom.editAssignWrap : dom.publishAssignWrap;
+  const enabled = isEdit ? !!dom.editRestrictedAccessInput?.checked : !!dom.publishRestrictedAccessInput?.checked;
+  if (wrap) wrap.hidden = !enabled;
+  const listEl = isEdit ? dom.editAssignedList : dom.publishAssignedList;
+  const summaryEl = isEdit ? dom.editAssignedSummary : dom.publishAssignedSummary;
+  const searchEl = isEdit ? dom.editAssignedSearchInput : dom.publishAssignedSearchInput;
+  const selected = isEdit ? state.editAssignedEmails : state.publishAssignedEmails;
+  if (!listEl || !summaryEl || !searchEl) return;
+
+  const normalizedSelected = normalizeAssignedEmailList(selected);
+  if (isEdit) state.editAssignedEmails = normalizedSelected;
+  else state.publishAssignedEmails = normalizedSelected;
+
+  const selectedCount = normalizedSelected.length;
+  summaryEl.textContent = selectedCount
+    ? `${selectedCount} utilisateur(s) sélectionné(s).`
+    : "Aucun utilisateur sélectionné.";
+
+  if (!enabled) {
+    listEl.innerHTML = "";
+    return;
+  }
+
+  const query = String(searchEl.value || "").trim().toLowerCase();
+  const users = state.assignableUsers.filter((user) => {
+    if (!query) return true;
+    const hay = `${getAssignableUserDisplay(user)} ${user.email || ""}`.toLowerCase();
+    return hay.includes(query);
+  });
+
+  if (!users.length) {
+    listEl.innerHTML = `<div class="assign-users-empty">Aucun utilisateur trouvé.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = users.map((user) => {
+    const checked = normalizedSelected.includes(user.email);
+    const fullName = getAssignableUserDisplay(user);
+    const same = fullName === user.email;
+    return `
+      <label class="assign-user-row">
+        <input type="checkbox" data-assignment-kind="${isEdit ? "edit" : "publish"}" data-assignment-email="${escapeHtml(user.email)}" ${checked ? "checked" : ""}>
+        <span class="assign-user-text">
+          <span class="assign-user-name">${escapeHtml(fullName)}</span>
+          ${same ? "" : `<span class="assign-user-email">${escapeHtml(user.email)}</span>`}
+        </span>
+      </label>
+    `;
+  }).join("");
+}
+
+async function loadAssignableUsers(force = false) {
+  if (!canSeeAdminPanel() || !state.adminUnlocked) return;
+  if (!force && state.assignableUsers.length) {
+    renderAssignableUsers("publish");
+    renderAssignableUsers("edit");
+    return;
+  }
+  try {
+    const response = await jsonp("listAssignableUsers", {
+      email: state.email,
+      adminCode: state.adminCode,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger les utilisateurs.");
+    state.assignableUsers = Array.isArray(response.users) ? response.users.map((user) => ({
+      email: normalizeEmail(user.email || ""),
+      firstName: normalizePersonName(user.firstName || ""),
+      lastName: normalizePersonName(user.lastName || ""),
+    })).filter((user) => user.email) : [];
+    renderAssignableUsers("publish");
+    renderAssignableUsers("edit");
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function handleAssignmentToggle(kind, enabled) {
+  if (kind === "edit") {
+    if (!enabled) dom.editAssignedSearchInput.value = "";
+    renderAssignableUsers("edit");
+    return;
+  }
+  if (!enabled) dom.publishAssignedSearchInput.value = "";
+  renderAssignableUsers("publish");
+}
+
+function updateAssignmentSelection(kind, email, checked) {
+  const key = kind === "edit" ? "editAssignedEmails" : "publishAssignedEmails";
+  const next = new Set(normalizeAssignedEmailList(state[key]));
+  if (checked) next.add(normalizeEmail(email));
+  else next.delete(normalizeEmail(email));
+  state[key] = [...next];
+  renderAssignableUsers(kind);
+}
+
 function normalizeRestoredDisplayPage(pageNumber) {
   const target = Math.max(1, Number(pageNumber) || 1);
   if (!state.visiblePages?.length) return target;
 
   if (state.currentBook?.hiddenPageRanges) {
+    if (target <= state.visiblePages.length) {
+      return target;
+    }
     const sourceIndex = state.visiblePages.indexOf(target);
     if (sourceIndex >= 0) return sourceIndex + 1;
 
@@ -737,10 +877,14 @@ async function refreshBooks() {
     adminCode: state.adminUnlocked ? state.adminCode : "",
   });
   if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
-  state.books = Array.isArray(response.books) ? response.books : [];
+  state.books = Array.isArray(response.books) ? response.books.map(buildBookSnapshot).filter(Boolean) : [];
   saveBooksCache();
   renderBookList();
   renderAdminBooks();
+  if (state.adminUnlocked) {
+    renderAssignableUsers("publish");
+    renderAssignableUsers("edit");
+  }
 }
 
 // ════════════════════════════════════════
@@ -1061,7 +1205,7 @@ function renderBookList() {
         <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Non publié"}</div>
         <h3>${escapeHtml(book.title)}</h3>
         <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
-        <p class="book-meta">${book.totalPages ? `${book.totalPages} pages` : "Nombre de pages inconnu"}</p>
+        <p class="book-meta">${getVisibleBookPageCount(book) ? `${getVisibleBookPageCount(book)} pages` : "Nombre de pages inconnu"}</p>
         <div class="book-actions">
           <button class="nav-btn" type="button" data-open-book="${escapeHtml(book.bookId)}">Ouvrir</button>
         </div>
@@ -1232,10 +1376,7 @@ async function renderTextPage(pageNumber) {
     dom.textViewer.hidden = true;
     dom.pdfViewer.hidden = false;
     await renderPdfPage(pageNumber, { forceFit: true });
-    if (state.fallbackNoticeShownForPage !== pageNumber) {
-      state.fallbackNoticeShownForPage = pageNumber;
-      showToast("Cette page s'affiche en mode PDF pour conserver sa mise en page.");
-    }
+    state.fallbackNoticeShownForPage = pageNumber;
     return;
   }
   state.fallbackNoticeShownForPage = 0;
@@ -1460,6 +1601,7 @@ async function unlockAdmin() {
     setPublishStatus("Module administrateur déverrouillé", true);
     saveSession();
     await refreshBooks();
+    await loadAssignableUsers(true);
   } catch (error) {
     console.error(error);
     showToast("Code administrateur invalide");
@@ -1528,8 +1670,9 @@ async function toggleBookPdfAllowed(bookId) {
 }
 
 // Change 6: Edit book metadata
-function openEditBookModal(bookId) {
+async function openEditBookModal(bookId) {
   if (!canSeeAdminPanel() || !state.adminUnlocked) return;
+  await loadAssignableUsers();
   const book = getBookById(bookId);
   if (!book) return;
   dom.editBookId.value = book.bookId;
@@ -1537,7 +1680,11 @@ function openEditBookModal(bookId) {
   dom.editBookAuthor.value = book.author || "";
   dom.editBookDescription.value = book.description || "";
   dom.editBookHiddenPages.value = book.hiddenPageRanges || "";
+  dom.editRestrictedAccessInput.checked = !!book.restrictedAccess;
+  state.editAssignedEmails = normalizeAssignedEmailList(book.assignedEmails || []);
+  dom.editAssignedSearchInput.value = "";
   dom.editBookStatus.textContent = "";
+  renderAssignableUsers("edit");
   dom.editBookModal.hidden = false;
 }
 
@@ -1551,13 +1698,18 @@ async function saveEditBook() {
   const author = dom.editBookAuthor.value.trim();
   const description = dom.editBookDescription.value.trim();
   const hiddenPageRanges = dom.editBookHiddenPages.value.trim();
+  const restrictedAccess = !!dom.editRestrictedAccessInput.checked;
+  const assignedEmails = normalizeAssignedEmailList(state.editAssignedEmails);
   if (!title) { dom.editBookStatus.textContent = "Le titre est requis."; return; }
+  if (restrictedAccess && !assignedEmails.length) { dom.editBookStatus.textContent = "Choisis au moins un utilisateur."; return; }
   dom.editBookSaveBtn.disabled = true;
   dom.editBookStatus.textContent = "Enregistrement…";
   try {
     const response = await jsonp("updateBook", {
       email: state.email, adminCode: state.adminCode,
       bookId, title, author, description, hiddenPageRanges,
+      restrictedAccess: restrictedAccess ? "true" : "false",
+      assignedEmails: assignedEmails.join(","),
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible de modifier le livre.");
     dom.editBookModal.hidden = true;
@@ -1592,6 +1744,7 @@ async function addUsersInBulk() {
     if (!response?.ok) throw new Error(response?.message || "Impossible d'ajouter les utilisateurs.");
     dom.addUsersTextarea.value = "";
     dom.addUsersStatus.textContent = `✓ ${emails.length} utilisateur(s) ajouté(s)`;
+    await loadAssignableUsers(true);
     showToast(`${emails.length} utilisateur(s) ajouté(s)`);
   } catch (error) {
     console.error(error);
@@ -1745,8 +1898,11 @@ async function publishBook(event) {
   const bookId = slugify(dom.bookIdInput.value.trim() || title || pdfFile.name.replace(/\.pdf$/i, ""));
   const author = dom.bookAuthorInput.value.trim();
   const coverFile = dom.bookCoverInput.files?.[0] || null;
+  const restrictedAccess = !!dom.publishRestrictedAccessInput.checked;
+  const assignedEmails = normalizeAssignedEmailList(state.publishAssignedEmails);
 
   if (!title || !bookId) { showToast("Titre ou identifiant manquant"); return; }
+  if (restrictedAccess && !assignedEmails.length) { showToast("Choisis au moins un utilisateur"); return; }
 
   // Avertissement si fichier volumineux
   const warnMB = CONFIG.pdfWarnSizeMB || 10;
@@ -1789,6 +1945,8 @@ async function publishBook(event) {
       repoName: CONFIG.githubRepoName || "",
       repoBranch: CONFIG.githubRepoBranch || "main",
       assetsBasePath: CONFIG.githubAssetsBasePath || "assets/books",
+      restrictedAccess: restrictedAccess ? "true" : "false",
+      assignedEmails: assignedEmails.join(","),
     };
     if (coverBase64) {
       params.coverBase64 = coverBase64;
@@ -1803,6 +1961,10 @@ async function publishBook(event) {
         setPublishStatus("Livre publié avec succès", true);
         dom.publishProgress.textContent = "Le PDF, le JSON et la couverture sont publiés dans GitHub.";
         dom.publishForm.reset();
+        state.publishAssignedEmails = [];
+        dom.publishRestrictedAccessInput.checked = false;
+        dom.publishAssignedSearchInput.value = "";
+        renderAssignableUsers("publish");
         dom.bookIdInput.dataset.lockedManual = "";
         dom.publishSizeWarning.hidden = true;
         await refreshBooks();
@@ -1829,6 +1991,10 @@ async function publishBook(event) {
       setPublishStatus("Livre publié", true);
       dom.publishProgress.textContent = "PDF, JSON et couverture publiés dans le dépôt GitHub.";
       dom.publishForm.reset();
+      state.publishAssignedEmails = [];
+      dom.publishRestrictedAccessInput.checked = false;
+      dom.publishAssignedSearchInput.value = "";
+      renderAssignableUsers("publish");
       dom.bookIdInput.dataset.lockedManual = "";
       dom.publishSizeWarning.hidden = true;
     } else {
@@ -2362,6 +2528,20 @@ function attachEvents() {
       dom.editBookModal.hidden = true;
       dom.editBookStatus.textContent = "";
     }
+  });
+  dom.publishRestrictedAccessInput.addEventListener("change", () => handleAssignmentToggle("publish", dom.publishRestrictedAccessInput.checked));
+  dom.editRestrictedAccessInput.addEventListener("change", () => handleAssignmentToggle("edit", dom.editRestrictedAccessInput.checked));
+  dom.publishAssignedSearchInput.addEventListener("input", () => renderAssignableUsers("publish"));
+  dom.editAssignedSearchInput.addEventListener("input", () => renderAssignableUsers("edit"));
+  dom.publishAssignedList.addEventListener("change", (e) => {
+    const input = e.target.closest("[data-assignment-email]");
+    if (!input) return;
+    updateAssignmentSelection("publish", input.dataset.assignmentEmail, input.checked);
+  });
+  dom.editAssignedList.addEventListener("change", (e) => {
+    const input = e.target.closest("[data-assignment-email]");
+    if (!input) return;
+    updateAssignmentSelection("edit", input.dataset.assignmentEmail, input.checked);
   });
   dom.bookTitleInput.addEventListener("input", rebuildAdminBookIdFromTitle);
   dom.bookIdInput.addEventListener("input", () => {

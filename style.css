@@ -785,3 +785,90 @@ textarea,
   .book-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .admin-books-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* ════════════════════════════════════════
+   ATTRIBUTION UTILISATEURS
+════════════════════════════════════════ */
+.access-assign-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.74);
+}
+.modal-access-block {
+  margin-top: 2px;
+}
+.assign-users-wrap {
+  display: grid;
+  gap: 10px;
+}
+.assign-users-summary {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+.assign-users-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 6px;
+}
+.assign-user-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 10px;
+  border-radius: 12px;
+}
+.assign-user-row:hover {
+  background: rgba(219, 234, 254, 0.45);
+}
+.assign-user-row + .assign-user-row {
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+.assign-user-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--primary);
+}
+.assign-user-text {
+  display: grid;
+  gap: 2px;
+}
+.assign-user-name {
+  font-weight: 700;
+  color: var(--text);
+}
+.assign-user-email {
+  color: var(--muted);
+  font-size: 0.9rem;
+  word-break: break-word;
+}
+.assign-users-empty {
+  color: var(--muted);
+  padding: 12px;
+  text-align: center;
+}
+.edit-book-modal-panel {
+  width: min(92vw, 720px);
+}
+.edit-book-form {
+  display: grid;
+  gap: 12px;
+}
+.edit-book-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+.edit-book-form input,
+.edit-book-form textarea {
+  width: 100%;
+}

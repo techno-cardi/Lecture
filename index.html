@@ -130,6 +130,19 @@
             </div>
           </div>
 
+          <div class="access-assign-block">
+            <label for="publishRestrictedAccessInput" class="checkbox-label">
+              <input id="publishRestrictedAccessInput" type="checkbox">
+              <span>Attribuer ce livre à certains utilisateurs seulement</span>
+            </label>
+            <div id="publishAssignWrap" class="assign-users-wrap" hidden>
+              <label for="publishAssignedSearchInput">Rechercher un utilisateur</label>
+              <input id="publishAssignedSearchInput" type="text" placeholder="Rechercher par nom ou courriel">
+              <div id="publishAssignedSummary" class="assign-users-summary">Aucun utilisateur sélectionné.</div>
+              <div id="publishAssignedList" class="assign-users-list"></div>
+            </div>
+          </div>
+
           <div class="publish-size-warning" id="publishSizeWarning" hidden>
             ⚠️ Fichier volumineux — la publication peut prendre plusieurs minutes.
           </div>
@@ -182,6 +195,18 @@
             <input id="editBookHiddenPages" type="text" maxlength="120" placeholder="Ex. 1-7, 12-13">
           </label>
           <p class="admin-help modal-help">Les pages indiquées ici ne seront plus affichées aux élèves. Utilise des plages comme 1-7, 12-13.</p>
+          <div class="access-assign-block modal-access-block">
+            <label for="editRestrictedAccessInput" class="checkbox-label">
+              <input id="editRestrictedAccessInput" type="checkbox">
+              <span>Restreindre ce livre à certains utilisateurs</span>
+            </label>
+            <div id="editAssignWrap" class="assign-users-wrap" hidden>
+              <label for="editAssignedSearchInput">Rechercher un utilisateur</label>
+              <input id="editAssignedSearchInput" type="text" placeholder="Rechercher par nom ou courriel">
+              <div id="editAssignedSummary" class="assign-users-summary">Aucun utilisateur sélectionné.</div>
+              <div id="editAssignedList" class="assign-users-list"></div>
+            </div>
+          </div>
           <input id="editBookId" type="hidden">
         </div>
         <div class="notes-actions" style="margin-top:4px;">
