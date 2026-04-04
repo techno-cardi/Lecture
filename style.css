@@ -1479,3 +1479,232 @@ body.focus-mode-active .menu-toggle:focus-visible {
 body.focus-mode-active .text-page {
   box-shadow: none;
 }
+
+/* v23 modal and reading comfort refinements */
+#readingCheckModal.font-modal-overlay,
+#bookReviewModal.font-modal-overlay {
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: auto;
+}
+
+.reading-check-modal-panel {
+  width: min(1480px, calc(100vw - 24px));
+  max-height: min(94vh, calc(100dvh - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.reading-check-header {
+  align-items: flex-start;
+}
+
+.reading-check-header .font-modal-title,
+.book-review-modal-panel .font-modal-title {
+  text-align: left;
+}
+
+.reading-check-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(220px, 260px) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.reading-check-field {
+  min-width: 0;
+}
+
+.reading-check-field > span,
+.book-review-toolbar .reading-check-field > span {
+  display: block;
+  min-height: 1.2em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.reading-check-field input,
+.reading-check-field select {
+  min-width: 0;
+}
+
+.reading-check-toggle,
+.book-review-toggle {
+  grid-column: auto;
+  justify-self: end;
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.reading-check-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(620px, 1fr);
+  gap: 18px;
+  min-height: min(66vh, 760px);
+  align-items: stretch;
+}
+
+.reading-check-users-pane,
+.reading-check-details {
+  min-width: 0;
+  min-height: 0;
+}
+
+.reading-check-users-pane {
+  display: flex;
+  flex-direction: column;
+}
+
+.reading-check-user-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  padding: 12px;
+}
+
+.reading-check-user-btn {
+  gap: 6px;
+}
+
+.reading-check-user-name,
+.reading-check-user-email {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.reading-check-details {
+  overflow: auto;
+  padding: 18px;
+}
+
+.reading-check-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.reading-check-book-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.reading-check-book-sections {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.reading-check-section,
+.reading-check-book-card,
+.reading-check-summary-card {
+  min-width: 0;
+}
+
+.reading-check-note-text {
+  overflow-wrap: anywhere;
+}
+
+.reading-surface.line-spacing-normal .text-content { line-height: 1.78; }
+.reading-surface.line-spacing-relaxed .text-content { line-height: 2.08; }
+.reading-surface.line-spacing-loose .text-content { line-height: 2.38; }
+.reading-surface.narrow-layout .text-viewer {
+  width: min(100%, 760px);
+  padding-left: clamp(22px, 6vw, 64px);
+  padding-right: clamp(22px, 6vw, 64px);
+}
+.reading-surface.narrow-layout .text-page {
+  max-width: 100%;
+}
+.reading-surface.narrow-layout .text-content {
+  max-width: 31em;
+}
+
+body.focus-mode-active .control-panel {
+  opacity: 0;
+  pointer-events: none;
+}
+body.focus-mode-active .reader-nav,
+body.focus-mode-active .top-progress-bar {
+  opacity: 0.05;
+}
+body.focus-mode-active .menu-toggle {
+  opacity: 0.18;
+}
+body.focus-mode-active .text-viewer {
+  padding-top: calc(var(--safe-top) + 18px);
+}
+body.focus-mode-active .text-page {
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+}
+
+@media (max-width: 1220px) {
+  .reading-check-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+  }
+  .reading-check-toggle,
+  .book-review-toggle {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  .reading-check-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+  .reading-check-user-list {
+    max-height: min(34vh, 320px);
+  }
+  .reading-check-details {
+    min-height: min(44vh, 420px);
+  }
+  .reading-check-book-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  #readingCheckModal.font-modal-overlay,
+  #bookReviewModal.font-modal-overlay {
+    padding: 6px;
+  }
+  .reading-check-modal-panel,
+  .book-review-modal-panel {
+    width: calc(100vw - 12px);
+    max-height: calc(100dvh - 12px);
+    border-radius: 20px;
+    padding: 14px;
+  }
+  .reading-check-header {
+    gap: 10px;
+  }
+  .reading-check-toolbar,
+  .book-review-toolbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .reading-check-toggle,
+  .book-review-toggle {
+    grid-column: auto;
+    justify-self: start;
+    white-space: normal;
+  }
+  .reading-check-user-list {
+    max-height: min(32vh, 280px);
+  }
+  .reading-check-details {
+    padding: 14px;
+    min-height: auto;
+  }
+  .reading-check-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .reading-check-book-stats,
+  .reading-check-book-sections {
+    grid-template-columns: 1fr;
+  }
+  .reading-surface.narrow-layout .text-viewer {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+}

@@ -252,6 +252,7 @@ const state = {
 
 const runtimeCache = {
   textDocs: new Map(),
+  pdfDocs: new Map(),
   bookLists: new Map(),
 };
 
@@ -313,6 +314,10 @@ function getReadingCheckUserName(user) {
   const firstName = normalizePersonName(user?.firstName || "");
   if (lastName && firstName) return `${lastName} ${firstName}`;
   return lastName || firstName || String(user?.email || "");
+}
+
+function hasStructuredReadingCheckName(user) {
+  return !!(normalizePersonName(user?.lastName || "") || normalizePersonName(user?.firstName || ""));
 }
 
 function isStudentDomainEmail(email) {
@@ -402,7 +407,7 @@ function setBookmarkStatus(message, kind = "", busy = false) {
 function setBookLoading(isVisible, message = "Chargement du livre en cours. Veuillez patienter.") {
   if (!dom.bookLoadingOverlay) return;
   dom.bookLoadingOverlay.hidden = !isVisible;
-  if (dom.bookLoadingMessage) dom.bookLoadingMessage.textContent = message || "Chargement du livre en cours…";
+  if (dom.bookLoadingMessage) dom.bookLoadingMessage.textContent = message || "Chargement du livre en cours. Veuillez patienter.";
 }
 
 function isIOSDevice() {
@@ -809,7 +814,7 @@ function renderReadingCheckUserList() {
   dom.readingCheckUserList.innerHTML = users.map((user) => {
     const active = state.selectedReadingCheckEmail === user.email;
     const displayName = getReadingCheckUserName(user);
-    const showEmail = normalizeEmail(displayName) !== normalizeEmail(user.email);
+    const showEmail = !hasStructuredReadingCheckName(user);
     return `
       <button class="reading-check-user-btn${active ? " is-active" : ""}" type="button" data-reading-check-email="${escapeHtml(user.email)}">
         <span class="reading-check-user-name">${escapeHtml(displayName)}</span>
@@ -1307,28 +1312,9 @@ function getSourcePageNumber(displayPageNumber) {
 
 async function resolveBookForOpening(book) {
   const fallbackBook = buildBookSnapshot(book) || book;
-  if (!fallbackBook?.bookId || !state.authVerified) return fallbackBook;
-  try {
-    const response = await jsonp("listBooks", {
-      email: state.email,
-      adminCode: state.adminUnlocked ? state.adminCode : "",
-    });
-    if (!response?.ok) return fallbackBook;
-    const books = Array.isArray(response.books) ? response.books.map(buildBookSnapshot).filter(Boolean) : [];
-    if (books.length) {
-      state.books = books;
-      saveBooksCache();
-      if (!dom.library.hidden) {
-        renderBookList();
-        renderAdminBooks();
-      }
-      const latest = books.find((item) => item.bookId === fallbackBook.bookId);
-      if (latest) return latest;
-    }
-  } catch (_) {
-    // on retombe sur les métadonnées déjà connues
-  }
-  return fallbackBook;
+  if (!fallbackBook?.bookId) return fallbackBook;
+  const currentListVersion = getBookById(fallbackBook.bookId);
+  return buildBookSnapshot(currentListVersion) || fallbackBook;
 }
 
 function openPageJumpModal() {
@@ -2224,9 +2210,20 @@ async function loadTextJson(book) {
 
 async function loadPdfDocument(book) {
   if (state.pdfDoc && state.currentBook?.bookId === book.bookId) return state.pdfDoc;
+  const cacheKey = String(book?.bookId || book?.pdfPath || "");
+  if (runtimeCache.pdfDocs.has(cacheKey)) {
+    state.pdfDoc = runtimeCache.pdfDocs.get(cacheKey);
+    return state.pdfDoc;
+  }
   const pdfUrl = computePublicAssetUrl(book.pdfPath);
-  const loadingTask = pdfjsLib.getDocument({ url: pdfUrl, disableAutoFetch: false, disableStream: false });
+  const loadingTask = pdfjsLib.getDocument({
+    url: pdfUrl,
+    disableAutoFetch: true,
+    disableStream: false,
+    rangeChunkSize: 262144,
+  });
   state.pdfDoc = await loadingTask.promise;
+  runtimeCache.pdfDocs.set(cacheKey, state.pdfDoc);
   return state.pdfDoc;
 }
 
@@ -2453,10 +2450,7 @@ async function goToPage(pageNumber, { save = true, reason = "nav" } = {}) {
 async function openBook(book, options = {}) {
   if (!state.authVerified || !book) throw new Error("Session invalide.");
   const resolvedBook = await resolveBookForOpening(book);
-  const firstName = getUserFirstName();
-  const defaultLoadingMessage = firstName
-    ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
-    : "Chargement du livre en cours. Veuillez patienter.";
+  const defaultLoadingMessage = "Chargement du livre en cours. Veuillez patienter.";
   const { preferredPage = 0, loadingMessage = defaultLoadingMessage } = options;
   cancelActivePdfRender();
   state.currentBook = resolvedBook;
@@ -2473,22 +2467,19 @@ async function openBook(book, options = {}) {
   state.pdfZoomMultiplier = 1;
   state.fallbackNoticeShownForPage = 0;
 
-  setSaveStatus("Chargement...");
+  setSaveStatus("");
   switchScreen("reader");
   toggleMenu(false);
   setBookLoading(true, loadingMessage);
   state.currentPageEnteredAt = 0;
 
   try {
-    const [progress, bookmarksResult, notesResult, textDoc] = await Promise.all([
-      fetchProgress(resolvedBook.bookId).catch(() => null),
-      jsonp("listBookmarks", { email: state.email, bookId: resolvedBook.bookId }).catch(() => ({ ok: false })),
-      jsonp("listNotes", { email: state.email, bookId: resolvedBook.bookId }).catch(() => ({ ok: false })),
-      loadTextJson(resolvedBook).catch(() => null),
-    ]);
+    const progressPromise = fetchProgress(resolvedBook.bookId).catch(() => null);
+    const textDocPromise = loadTextJson(resolvedBook).catch(() => null);
+    const bookmarksPromise = jsonp("listBookmarks", { email: state.email, bookId: resolvedBook.bookId }).catch(() => ({ ok: false }));
+    const notesPromise = jsonp("listNotes", { email: state.email, bookId: resolvedBook.bookId }).catch(() => ({ ok: false }));
 
-    state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
-    state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
+    const [progress, textDoc] = await Promise.all([progressPromise, textDocPromise]);
     state.textDoc = textDoc;
 
     let sourceTotalPages = textDoc?.totalPages ? Number(textDoc.totalPages) || 0 : (Number(resolvedBook.totalPages) || 0);
@@ -2512,9 +2503,18 @@ async function openBook(book, options = {}) {
     resetNoteEditor();
     await renderCurrentPage({ forceFit: true });
     startReadingTracking();
-    await saveProgress({ immediate: true, showError: false, showSuccess: false });
-    setSaveStatus("Prêt");
     saveCurrentBookState();
+    setSaveStatus("Prêt");
+
+    void bookmarksPromise.then((bookmarksResult) => {
+      state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
+      renderBookmarks();
+    });
+    void notesPromise.then((notesResult) => {
+      state.notes = notesResult?.ok && Array.isArray(notesResult.notes) ? notesResult.notes : [];
+      renderNotes();
+    });
+    void saveProgress({ immediate: true, showError: false, showSuccess: false });
   } finally {
     setBookLoading(false);
   }
