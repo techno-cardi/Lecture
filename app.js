@@ -449,8 +449,14 @@ async function triggerInstallShortcut() {
     updateInstallShortcutVisibility();
     return;
   }
-  showManualInstallHint();
-  showToast(isIOSDevice() ? "Instructions d'installation affichées" : "Instructions d'installation affichées");
+  // Pas de prompt natif : afficher des instructions contextuelles claires.
+  if (isIOSDevice()) {
+    showManualInstallHint();
+    showToast('Appuie sur Partager ↑ puis « Sur l\'écran d\'accueil »');
+  } else {
+    showManualInstallHint();
+    showToast("Utilise le menu ⋮ du navigateur → Installer l'application");
+  }
 }
 
 function setAdminUnlockStatus(message = "", kind = "") {
@@ -3063,13 +3069,9 @@ async function maybeRestoreCurrentBook(savedState = null) {
   if (!saved?.bookId) return false;
   const book = getBookById(saved.bookId) || buildBookSnapshot(saved.book);
   if (!book) return false;
-  const firstName = getUserFirstName();
-  const loadingMessage = firstName
-    ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
-    : "Chargement du livre en cours. Veuillez patienter.";
   await openBook(book, {
     preferredPage: Number(saved.page) || 1,
-    loadingMessage,
+    loadingMessage: "Chargement du livre en cours. Veuillez patienter.",
   });
   return true;
 }
@@ -3084,21 +3086,39 @@ async function finishLoginFlow(options = {}) {
   applyAdminVisibility();
   saveSession();
 
-  const firstName = getUserFirstName();
   const savedBookState = attemptRestore ? readCurrentBookState() : null;
   const wantsDirectRestore = !!savedBookState?.bookId;
-  const libraryLoadingMessage = firstName
-    ? `Bienvenue ${firstName}! Chargement de la bibliothèque en cours. Merci de patienter.`
-    : "Chargement de la bibliothèque en cours. Merci de patienter.";
-  const readerLoadingMessage = firstName
-    ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
-    : "Chargement du livre en cours. Veuillez patienter.";
+  const bookLoadingMessage = "Chargement du livre en cours. Veuillez patienter.";
+  const libraryLoadingMessage = "Chargement de la bibliothèque en cours. Merci de patienter.";
 
   if (wantsDirectRestore) {
+    // Alimenter la liste de livres depuis le cache immédiatement
+    // pour ne pas attendre un appel réseau avant d'ouvrir le livre.
+    const cached = readBooksCache();
+    if (cached?.books?.length) {
+      state.books = cached.books.map(buildBookSnapshot).filter(Boolean);
+    }
     switchScreen("reader");
     toggleMenu(false);
-    setBookLoading(true, readerLoadingMessage);
+    setBookLoading(true, bookLoadingMessage);
     setSaveStatus("Chargement...");
+    try {
+      const restored = await maybeRestoreCurrentBook(savedBookState);
+      if (restored) {
+        // Actualiser la bibliothèque en arrière-plan une fois le livre ouvert.
+        void refreshBooks().catch(() => {});
+        void syncOfflineQueue();
+        return;
+      }
+    } catch (error) {
+      if (!fromRestore) throw error;
+      showToast("Impossible de rouvrir le dernier livre");
+    } finally {
+      if (!state.currentBook) setBookLoading(false);
+    }
+    switchScreen("library");
+    renderBookList();
+    renderAdminBooks();
   } else {
     switchScreen("library");
     renderLibraryLoadingState(libraryLoadingMessage);
@@ -3126,22 +3146,6 @@ async function finishLoginFlow(options = {}) {
     if (!wantsDirectRestore) {
       showToast("Bibliothèque restaurée à partir de la dernière session");
     }
-  }
-
-  if (wantsDirectRestore) {
-    try {
-      const restored = await maybeRestoreCurrentBook(savedBookState);
-      if (restored) return;
-    } catch (error) {
-      if (!fromRestore) throw error;
-      showToast("Impossible de rouvrir le dernier livre");
-    } finally {
-      if (!state.currentBook) setBookLoading(false);
-    }
-    switchScreen("library");
-    renderBookList();
-    renderAdminBooks();
-    return;
   }
 
   void syncOfflineQueue();
@@ -3258,7 +3262,7 @@ async function handleLogin(event) {
     }
 
     const firstName = getUserFirstName();
-    setGateBusy(true, firstName ? `Chargement de la bibliothèque en cours. Veuillez patienter, ${firstName}.` : "Chargement de la bibliothèque en cours. Veuillez patienter.");
+    setGateBusy(true, "Chargement de la bibliothèque en cours. Veuillez patienter.");
 
     saveSession();
 
@@ -3512,7 +3516,7 @@ function attachEvents() {
   // Lecteur — retour
   on(dom.backToLibraryBtn, "click", async () => {
     toggleMenu(false);
-    setBookLoading(true, "Veuillez patienter, de retour à la bibliothèque…");
+    setBookLoading(true, "Chargement du livre en cours. Veuillez patienter.");
     try {
       stopReadingTracking();
       await saveProgress({ immediate: true, showError: false });
