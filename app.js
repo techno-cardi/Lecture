@@ -645,14 +645,20 @@ function cleanLoginQueryFromUrl() {
   } catch (_) {}
 }
 
+
+function on(node, eventName, handler, options) {
+  if (!node || !node.addEventListener) return;
+  node.addEventListener(eventName, handler, options);
+}
+
 function bindSafeLoginEvents() {
   const runLogin = (event) => {
     if (event) event.preventDefault();
     void handleLogin(event || { preventDefault() {} });
   };
-  dom.loginForm?.addEventListener("submit", runLogin);
-  dom.loginBtn?.addEventListener("click", runLogin);
-  dom.emailInput?.addEventListener("keydown", (e) => {
+  on(dom.loginForm, "submit", runLogin);
+  on(dom.loginBtn, "click", runLogin);
+  on(dom.emailInput, "keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
       runLogin(e);
@@ -2168,9 +2174,10 @@ async function finishLoginFlow(options = {}) {
 }
 
 function openProfileModal() {
+  if (!dom.profileModal || !dom.profileFirstNameInput || !dom.profileLastNameInput) return;
   dom.profileFirstNameInput.value = normalizePersonName(state.userProfile?.firstName || "");
   dom.profileLastNameInput.value = normalizePersonName(state.userProfile?.lastName || "");
-  dom.profileStatus.textContent = "";
+  if (dom.profileStatus) dom.profileStatus.textContent = "";
   dom.profileModal.hidden = false;
   window.setTimeout(() => dom.profileFirstNameInput.focus(), 30);
 }
@@ -2274,7 +2281,8 @@ async function handleLogin(event) {
 
     saveSession();
 
-    if (!response.profileComplete) {
+    const needsProfile = response.profileComplete === false;
+    if (needsProfile && dom.profileModal && dom.profileFirstNameInput && dom.profileLastNameInput && dom.profileSaveBtn) {
       setGateBusy(false);
       openProfileModal();
       return;
@@ -2304,7 +2312,7 @@ function attachSwipeEvents() {
   let pinchStartDistance = 0;
   let horizontalSwipeLock = false;
 
-  dom.viewerShell.addEventListener("touchstart", (e) => {
+  on(dom.viewerShell, "touchstart", (e) => {
     if (!dom.controlPanel.hidden) return;
     if (e.touches.length === 2) {
       state.pinchActive = true;
@@ -2322,7 +2330,7 @@ function attachSwipeEvents() {
     startScrollTop = dom.viewerShell.scrollTop;
   }, { passive: true });
 
-  dom.viewerShell.addEventListener("touchmove", (e) => {
+  on(dom.viewerShell, "touchmove", (e) => {
     if (!dom.controlPanel.hidden) return;
     if (e.touches.length === 2) {
       const currentDistance = getTouchDistance(e.touches);
@@ -2379,7 +2387,7 @@ function attachSwipeEvents() {
     }
   }, { passive: false });
 
-  dom.viewerShell.addEventListener("touchend", (e) => {
+  on(dom.viewerShell, "touchend", (e) => {
     if (state.pinchActive) {
       if (!e.touches.length) {
         pinchStartDistance = 0;
@@ -2437,22 +2445,22 @@ function initInstallBanner() {
     e.preventDefault();
     deferredPrompt = e;
     if (!localStorage.getItem(LS_INSTALL_KEY)) {
-      dom.installBanner.hidden = false;
+      if (dom.installBanner) dom.installBanner.hidden = false;
     }
   });
 
-  dom.installBannerBtn.addEventListener("click", async () => {
+  on(dom.installBannerBtn, "click", async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
       deferredPrompt = null;
     }
-    dom.installBanner.hidden = true;
+    if (dom.installBanner) dom.installBanner.hidden = true;
     localStorage.setItem(LS_INSTALL_KEY, "1");
   });
 
-  dom.installBannerDismiss.addEventListener("click", () => {
-    dom.installBanner.hidden = true;
+  on(dom.installBannerDismiss, "click", () => {
+    if (dom.installBanner) dom.installBanner.hidden = true;
     localStorage.setItem(LS_INSTALL_KEY, "1");
   });
 
@@ -2460,18 +2468,18 @@ function initInstallBanner() {
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
   const isStandalone = window.navigator.standalone === true;
   if (isIOS && !isStandalone && !localStorage.getItem(LS_IOS_INSTALL_KEY)) {
-    dom.installBannerText.textContent = 'Pour installer : appuyez sur le bouton Partager ↑ puis "Sur l\'écran d\'accueil"';
-    dom.installBannerBtn.hidden = true;
-    dom.installBanner.hidden = false;
+    if (dom.installBannerText) dom.installBannerText.textContent = 'Pour installer : appuyez sur le bouton Partager ↑ puis "Sur l\'écran d\'accueil"';
+    if (dom.installBannerBtn) dom.installBannerBtn.hidden = true;
+    if (dom.installBanner) dom.installBanner.hidden = false;
   }
 
-  if (dom.installBannerBtn.hidden === false || !isIOS) {
+  if ((dom.installBannerBtn && dom.installBannerBtn.hidden === false) || !isIOS) {
     // bouton standard visible ou Android — on le réaffiche si caché
-    dom.installBannerBtn.hidden = false;
+    if (dom.installBannerBtn) dom.installBannerBtn.hidden = false;
   }
 
   // Dismiss iOS
-  dom.installBannerDismiss.addEventListener("click", () => {
+  on(dom.installBannerDismiss, "click", () => {
     if (isIOS) localStorage.setItem(LS_IOS_INSTALL_KEY, "1");
   });
 }
@@ -2502,17 +2510,17 @@ function blockEasyActions() {
 function attachEvents() {
   // Connexion
   bindSafeLoginEvents();
-  dom.logoutBtn.addEventListener("click", logoutToGate);
+  on(dom.logoutBtn, "click", logoutToGate);
   ["input", "blur"].forEach((eventName) => {
-    dom.profileFirstNameInput.addEventListener(eventName, () => {
+    on(dom.profileFirstNameInput, eventName, () => {
       dom.profileFirstNameInput.value = normalizePersonName(dom.profileFirstNameInput.value);
     });
-    dom.profileLastNameInput.addEventListener(eventName, () => {
+    on(dom.profileLastNameInput, eventName, () => {
       dom.profileLastNameInput.value = normalizePersonName(dom.profileLastNameInput.value);
     });
   });
-  dom.profileSaveBtn.addEventListener("click", saveUserProfileAndContinue);
-  dom.profileModal.addEventListener("keydown", (e) => {
+  on(dom.profileSaveBtn, "click", saveUserProfileAndContinue);
+  on(dom.profileModal, "keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
       saveUserProfileAndContinue();
@@ -2520,13 +2528,13 @@ function attachEvents() {
   });
 
   // Bibliothèque
-  dom.refreshBooksBtn.addEventListener("click", async () => {
+  on(dom.refreshBooksBtn, "click", async () => {
     try { await refreshBooks(); showToast("Bibliothèque actualisée"); }
     catch (e) { console.error(e); showToast("Impossible d'actualiser"); }
   });
 
   // Lecteur — retour
-  dom.backToLibraryBtn.addEventListener("click", async () => {
+  on(dom.backToLibraryBtn, "click", async () => {
     toggleMenu(false);
     setBookLoading(true, "Veuillez patienter, de retour à la bibliothèque…");
     try {
@@ -2541,41 +2549,41 @@ function attachEvents() {
   });
 
   // Menu
-  dom.menuToggle.addEventListener("click", () => toggleMenu());
-  dom.menuBackdrop.addEventListener("click", () => toggleMenu(false));
-  dom.closeMenuBtn.addEventListener("click", () => toggleMenu(false));
+  on(dom.menuToggle, "click", () => toggleMenu());
+  on(dom.menuBackdrop, "click", () => toggleMenu(false));
+  on(dom.closeMenuBtn, "click", () => toggleMenu(false));
 
   // Navigation principale (menu)
-  dom.prevBtn.addEventListener("click", () => goToPage(state.currentPage - 1));
-  dom.nextBtn.addEventListener("click", () => goToPage(state.currentPage + 1));
-  dom.goBtn.addEventListener("click", () => goToPage(Number(dom.pageInput.value)));
-  dom.pageInput.addEventListener("keydown", (e) => {
+  on(dom.prevBtn, "click", () => goToPage(state.currentPage - 1));
+  on(dom.nextBtn, "click", () => goToPage(state.currentPage + 1));
+  on(dom.goBtn, "click", () => goToPage(Number(dom.pageInput.value)));
+  on(dom.pageInput, "keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); goToPage(Number(dom.pageInput.value)); }
   });
 
   // Navigation inférieure fixe
-  dom.navPrevBtn.addEventListener("click", () => goToPage(state.currentPage - 1));
-  dom.navNextBtn.addEventListener("click", () => goToPage(state.currentPage + 1));
-  dom.navPageBtn.addEventListener("click", openPageJumpModal);
-  dom.pageJumpGoBtn.addEventListener("click", submitPageJump);
-  dom.pageJumpStayBtn.addEventListener("click", closePageJumpModal);
-  dom.pageJumpInput.addEventListener("keydown", (e) => {
+  on(dom.navPrevBtn, "click", () => goToPage(state.currentPage - 1));
+  on(dom.navNextBtn, "click", () => goToPage(state.currentPage + 1));
+  on(dom.navPageBtn, "click", openPageJumpModal);
+  on(dom.pageJumpGoBtn, "click", submitPageJump);
+  on(dom.pageJumpStayBtn, "click", closePageJumpModal);
+  on(dom.pageJumpInput, "keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); void submitPageJump(); }
   });
-  dom.pageJumpModal.addEventListener("click", (e) => {
+  on(dom.pageJumpModal, "click", (e) => {
     if (e.target === dom.pageJumpModal) closePageJumpModal();
   });
 
   // Barre de progression supérieure
-  dom.topProgressLabel.addEventListener("click", () => {
+  on(dom.topProgressLabel, "click", () => {
     state.progressMode = state.progressMode === "percent" ? "pages" : "percent";
     localStorage.setItem(LS_PROGRESS_MODE_KEY, state.progressMode);
     updateUiLabels();
   });
 
   // Ajustements
-  dom.fitBtn.addEventListener("click", fitCurrentView);
-  dom.modeToggleBtn.addEventListener("click", async () => {
+  on(dom.fitBtn, "click", fitCurrentView);
+  on(dom.modeToggleBtn, "click", async () => {
     if (!state.currentBook?.pdfAllowed) { showToast("Le mode PDF n'est pas autorisé pour ce livre."); return; }
     if (state.mode === "text") {
       if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
@@ -2588,14 +2596,14 @@ function attachEvents() {
   });
 
   // Thème
-  dom.themeBtn.addEventListener("click", async () => {
+  on(dom.themeBtn, "click", async () => {
     state.theme = state.theme === "paper" ? "night" : "paper";
     localStorage.setItem(LS_THEME_KEY, state.theme);
     await renderCurrentPage();
   });
 
   // Progression — toggle barre
-  dom.progressBarToggleBtn.addEventListener("click", () => {
+  on(dom.progressBarToggleBtn, "click", () => {
     state.showProgressBar = !state.showProgressBar;
     localStorage.setItem(LS_PROGRESS_BAR_KEY, String(state.showProgressBar));
     updateUiLabels();
@@ -2603,61 +2611,61 @@ function attachEvents() {
   });
 
   // Modal taille du texte
-  dom.fontSizeBtn.addEventListener("click", () => {
+  on(dom.fontSizeBtn, "click", () => {
     if (state.mode === "pdf") { showToast("La taille du texte s'applique au mode texte uniquement."); return; }
     dom.fontModal.hidden = false;
   });
-  dom.fontModalMinus.addEventListener("click", () => updateFontOrZoom(-1));
-  dom.fontModalPlus.addEventListener("click", () => updateFontOrZoom(1));
-  dom.fontModalClose.addEventListener("click", () => { dom.fontModal.hidden = true; });
-  dom.fontModal.addEventListener("click", (e) => {
+  on(dom.fontModalMinus, "click", () => updateFontOrZoom(-1));
+  on(dom.fontModalPlus, "click", () => updateFontOrZoom(1));
+  on(dom.fontModalClose, "click", () => { dom.fontModal.hidden = true; });
+  on(dom.fontModal, "click", (e) => {
     if (e.target === dom.fontModal) dom.fontModal.hidden = true;
   });
 
   // Signets / notes / sauvegarde
-  dom.bookmarkBtn.addEventListener("click", addBookmark);
-  dom.saveBtn.addEventListener("click", () => saveProgress({ immediate: true, showSuccess: true, showError: true }));
-  dom.saveNoteBtn.addEventListener("click", saveCurrentNote);
-  dom.newNoteBtn.addEventListener("click", resetNoteEditor);
+  on(dom.bookmarkBtn, "click", addBookmark);
+  on(dom.saveBtn, "click", () => saveProgress({ immediate: true, showSuccess: true, showError: true }));
+  on(dom.saveNoteBtn, "click", saveCurrentNote);
+  on(dom.newNoteBtn, "click", resetNoteEditor);
 
   // Admin
-  dom.adminCodeInput.addEventListener("keydown", (e) => {
+  on(dom.adminCodeInput, "keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); unlockAdmin(); }
   });
-  dom.unlockAdminBtn.addEventListener("click", unlockAdmin);
-  dom.testGithubBtn.addEventListener("click", testGithubConnection);
-  dom.publishForm.addEventListener("submit", publishBook);
-  dom.reloadAdminBooksBtn.addEventListener("click", refreshBooks);
-  dom.addUsersBtn.addEventListener("click", addUsersInBulk);
-  dom.editBookSaveBtn.addEventListener("click", saveEditBook);
-  dom.editBookCancelBtn.addEventListener("click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; });
-  dom.editBookModal.addEventListener("click", (e) => {
+  on(dom.unlockAdminBtn, "click", unlockAdmin);
+  on(dom.testGithubBtn, "click", testGithubConnection);
+  on(dom.publishForm, "submit", publishBook);
+  on(dom.reloadAdminBooksBtn, "click", refreshBooks);
+  on(dom.addUsersBtn, "click", addUsersInBulk);
+  on(dom.editBookSaveBtn, "click", saveEditBook);
+  on(dom.editBookCancelBtn, "click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; });
+  on(dom.editBookModal, "click", (e) => {
     if (e.target === dom.editBookModal) {
       dom.editBookModal.hidden = true;
       dom.editBookStatus.textContent = "";
     }
   });
-  dom.publishRestrictedAccessInput.addEventListener("change", () => handleAssignmentToggle("publish", dom.publishRestrictedAccessInput.checked));
-  dom.editRestrictedAccessInput.addEventListener("change", () => handleAssignmentToggle("edit", dom.editRestrictedAccessInput.checked));
-  dom.publishAssignedSearchInput.addEventListener("input", () => renderAssignableUsers("publish"));
-  dom.editAssignedSearchInput.addEventListener("input", () => renderAssignableUsers("edit"));
-  dom.publishAssignedList.addEventListener("change", (e) => {
+  on(dom.publishRestrictedAccessInput, "change", () => handleAssignmentToggle("publish", dom.publishRestrictedAccessInput.checked));
+  on(dom.editRestrictedAccessInput, "change", () => handleAssignmentToggle("edit", dom.editRestrictedAccessInput.checked));
+  on(dom.publishAssignedSearchInput, "input", () => renderAssignableUsers("publish"));
+  on(dom.editAssignedSearchInput, "input", () => renderAssignableUsers("edit"));
+  on(dom.publishAssignedList, "change", (e) => {
     const input = e.target.closest("[data-assignment-email]");
     if (!input) return;
     updateAssignmentSelection("publish", input.dataset.assignmentEmail, input.checked);
   });
-  dom.editAssignedList.addEventListener("change", (e) => {
+  on(dom.editAssignedList, "change", (e) => {
     const input = e.target.closest("[data-assignment-email]");
     if (!input) return;
     updateAssignmentSelection("edit", input.dataset.assignmentEmail, input.checked);
   });
-  dom.bookTitleInput.addEventListener("input", rebuildAdminBookIdFromTitle);
-  dom.bookIdInput.addEventListener("input", () => {
+  on(dom.bookTitleInput, "input", rebuildAdminBookIdFromTitle);
+  on(dom.bookIdInput, "input", () => {
     dom.bookIdInput.dataset.lockedManual = dom.bookIdInput.value.trim() ? "1" : "";
   });
 
   // Délégations — bibliothèque
-  dom.bookList.addEventListener("click", async (e) => {
+  on(dom.bookList, "click", async (e) => {
     const btn = e.target.closest("[data-open-book]");
     if (!btn || state.openingBookId) return;
     const book = getBookById(btn.dataset.openBook);
@@ -2674,7 +2682,7 @@ function attachEvents() {
   });
 
   // Délégations — admin livres
-  dom.adminBooksList.addEventListener("click", async (e) => {
+  on(dom.adminBooksList, "click", async (e) => {
     const openBtn = e.target.closest("[data-open-book]");
     const toggleBtn = e.target.closest("[data-toggle-book]");
     const pdfBtn = e.target.closest("[data-toggle-pdf]");
@@ -2701,7 +2709,7 @@ function attachEvents() {
   });
 
   // Délégations — signets
-  dom.bookmarkList.addEventListener("click", async (e) => {
+  on(dom.bookmarkList, "click", async (e) => {
     const jumpBtn = e.target.closest("[data-bookmark-page]");
     const renameBtn = e.target.closest("[data-rename-bookmark]");
     const removeBtn = e.target.closest("[data-remove-bookmark]");
@@ -2717,7 +2725,7 @@ function attachEvents() {
   });
 
   // Délégations — notes
-  dom.notesList.addEventListener("click", async (e) => {
+  on(dom.notesList, "click", async (e) => {
     const editBtn = e.target.closest("[data-edit-note]");
     const delBtn = e.target.closest("[data-delete-note]");
     if (editBtn) { startEditingNote(editBtn.dataset.editNote); return; }
