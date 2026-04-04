@@ -264,6 +264,58 @@
       </div>
     </div>
 
+    <!-- Modal suivi par livre -->
+    <div id="bookReviewModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel book-review-modal-panel">
+        <div class="reading-check-header">
+          <div>
+            <div class="font-modal-title">Suivi de lecture par livre</div>
+            <p id="bookReviewSubhead" class="admin-help modal-help">Sélectionne un livre pour consulter l'activité de lecture des élèves.</p>
+          </div>
+          <button id="bookReviewCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+        </div>
+        <div class="reading-check-toolbar book-review-toolbar">
+          <label class="reading-check-field" for="bookReviewSearchInput">
+            <span>Rechercher un élève</span>
+            <input id="bookReviewSearchInput" type="text" placeholder="Nom, prénom ou courriel">
+          </label>
+          <label class="reading-check-field reading-check-sort-field" for="bookReviewSortSelect">
+            <span>Trier par</span>
+            <select id="bookReviewSortSelect">
+              <option value="name">Nom, prénom</option>
+              <option value="progress">Progression</option>
+              <option value="activity">Dernière activité</option>
+              <option value="email">Adresse courriel</option>
+            </select>
+          </label>
+          <label class="reading-check-field reading-check-sort-field" for="bookReviewFilterSelect">
+            <span>Filtrer</span>
+            <select id="bookReviewFilterSelect">
+              <option value="all">Tous les utilisateurs autorisés</option>
+              <option value="started">Seulement commencés</option>
+              <option value="notes">Seulement avec notes</option>
+              <option value="completed">Seulement terminés</option>
+              <option value="not_started">Seulement non ouverts</option>
+            </select>
+          </label>
+          <label class="checkbox-label book-review-toggle">
+            <input id="bookReviewShowExternalInput" type="checkbox">
+            <span>Afficher les utilisateurs externes</span>
+          </label>
+        </div>
+        <div id="bookReviewStatus" class="save-status"></div>
+        <div class="reading-check-layout book-review-layout">
+          <aside class="reading-check-users-pane book-review-users-pane">
+            <div id="bookReviewSummary" class="book-review-summary-strip"></div>
+            <div id="bookReviewUserList" class="reading-check-user-list"></div>
+          </aside>
+          <section id="bookReviewDetails" class="reading-check-details">
+            <div class="empty-state">Choisis un livre, puis un élève, pour consulter la progression, les signets et les notes.</div>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal premier accès -->
     <div id="profileModal" class="font-modal-overlay" hidden>
       <div class="font-modal-panel profile-modal-panel">

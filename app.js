@@ -82,6 +82,17 @@ const dom = {
   readingCheckStatus: document.getElementById("readingCheckStatus"),
   readingCheckUserList: document.getElementById("readingCheckUserList"),
   readingCheckDetails: document.getElementById("readingCheckDetails"),
+  bookReviewModal: document.getElementById("bookReviewModal"),
+  bookReviewCloseBtn: document.getElementById("bookReviewCloseBtn"),
+  bookReviewSubhead: document.getElementById("bookReviewSubhead"),
+  bookReviewSearchInput: document.getElementById("bookReviewSearchInput"),
+  bookReviewSortSelect: document.getElementById("bookReviewSortSelect"),
+  bookReviewFilterSelect: document.getElementById("bookReviewFilterSelect"),
+  bookReviewShowExternalInput: document.getElementById("bookReviewShowExternalInput"),
+  bookReviewStatus: document.getElementById("bookReviewStatus"),
+  bookReviewSummary: document.getElementById("bookReviewSummary"),
+  bookReviewUserList: document.getElementById("bookReviewUserList"),
+  bookReviewDetails: document.getElementById("bookReviewDetails"),
 
   editBookModal: document.getElementById("editBookModal"),
   editBookTitle: document.getElementById("editBookTitle"),
@@ -208,6 +219,13 @@ const state = {
   readingCheckData: null,
   loadingReadingCheckEmail: "",
   readingCheckSortMode: "name",
+  selectedBookReviewEmail: "",
+  bookReviewData: null,
+  loadingBookReviewId: "",
+  loadingBookReviewEmail: "",
+  bookReviewSortMode: "name",
+  bookReviewFilterMode: "all",
+  bookReviewShowExternal: false,
   pendingReadingSeconds: 0,
   readingTickMs: 0,
   currentBookOpenedAt: "",
@@ -271,6 +289,26 @@ function getReadingCheckUserName(user) {
   const firstName = normalizePersonName(user?.firstName || "");
   if (lastName && firstName) return `${lastName} ${firstName}`;
   return lastName || firstName || String(user?.email || "");
+}
+
+function isStudentDomainEmail(email) {
+  return /@educ\.cscapitale\.qc\.ca$/i.test(String(email || "").trim());
+}
+
+function getBookReviewUserName(user) {
+  return getReadingCheckUserName(user);
+}
+
+function getBookReviewStatusLabel(status) {
+  if (status === "completed") return "Terminé";
+  if (status === "started") return "Commencé";
+  return "Non ouvert";
+}
+
+function getBookReviewStatusClass(status) {
+  if (status === "completed") return "published";
+  if (status === "started") return "status-started";
+  return "hidden";
 }
 
 function formatReadingDuration(totalSeconds) {
@@ -364,8 +402,19 @@ function resetAdminState() {
   state.selectedReadingCheckEmail = "";
   state.readingCheckData = null;
   state.loadingReadingCheckEmail = "";
+  state.selectedBookReviewEmail = "";
+  state.bookReviewData = null;
+  state.loadingBookReviewId = "";
+  state.loadingBookReviewEmail = "";
+  state.bookReviewSortMode = "name";
+  state.bookReviewFilterMode = "all";
+  state.bookReviewShowExternal = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
+  if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = "name";
+  if (dom.bookReviewFilterSelect) dom.bookReviewFilterSelect.value = "all";
+  if (dom.bookReviewShowExternalInput) dom.bookReviewShowExternalInput.checked = false;
   dom.adminCodeInput.value = "";
   applyAdminVisibility();
   setPublishStatus("En attente");
@@ -830,6 +879,235 @@ async function openReadingCheckModal() {
 function closeReadingCheckModal() {
   if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = true;
+}
+
+function renderBookReviewSummary() {
+  if (!dom.bookReviewSummary) return;
+  const payload = state.bookReviewData;
+  if (!payload?.summary) {
+    dom.bookReviewSummary.innerHTML = "";
+    return;
+  }
+  const summary = payload.summary || {};
+  dom.bookReviewSummary.innerHTML = `
+    <div class="reading-check-summary book-review-summary-grid">
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs autorisés</div><div class="reading-check-summary-value">${Number(summary.eligibleUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Commencés</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Avec notes</div><div class="reading-check-summary-value">${Number(summary.withNotesUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Terminés</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
+    </div>
+  `;
+}
+
+function getFilteredBookReviewUsers() {
+  const payload = state.bookReviewData;
+  if (!payload?.users) return [];
+  const query = String(dom.bookReviewSearchInput?.value || "").trim().toLowerCase();
+  const sortMode = dom.bookReviewSortSelect?.value || state.bookReviewSortMode || "name";
+  const filterMode = dom.bookReviewFilterSelect?.value || state.bookReviewFilterMode || "all";
+  const showExternal = !!dom.bookReviewShowExternalInput?.checked;
+  state.bookReviewSortMode = sortMode;
+  state.bookReviewFilterMode = filterMode;
+  state.bookReviewShowExternal = showExternal;
+  return [...payload.users]
+    .filter((user) => {
+      if (!showExternal && user.isExternal) return false;
+      if (filterMode === "started" && user.status !== "started" && user.status !== "completed") return false;
+      if (filterMode === "notes" && !(Number(user.notesCount) > 0)) return false;
+      if (filterMode === "completed" && user.status !== "completed") return false;
+      if (filterMode === "not_started" && user.status !== "not_started") return false;
+      if (!query) return true;
+      const haystack = `${getBookReviewUserName(user)} ${user.email}`.toLowerCase();
+      return haystack.includes(query);
+    })
+    .sort((left, right) => {
+      if (sortMode === "email") return String(left.email || "").localeCompare(String(right.email || ""), "fr-CA");
+      if (sortMode === "progress") {
+        const delta = (Number(right.progressPercent) || 0) - (Number(left.progressPercent) || 0);
+        if (delta) return delta;
+      }
+      if (sortMode === "activity") {
+        const leftTime = new Date(left.lastUpdated || left.lastOpenedAt || 0).getTime() || 0;
+        const rightTime = new Date(right.lastUpdated || right.lastOpenedAt || 0).getTime() || 0;
+        if (rightTime !== leftTime) return rightTime - leftTime;
+      }
+      const leftKey = `${String(left.lastName || "").toLowerCase()}${String(left.firstName || "").toLowerCase()}${String(left.email || "").toLowerCase()}`;
+      const rightKey = `${String(right.lastName || "").toLowerCase()}${String(right.firstName || "").toLowerCase()}${String(right.email || "").toLowerCase()}`;
+      return leftKey.localeCompare(rightKey, "fr-CA");
+    });
+}
+
+function renderBookReviewUserList() {
+  if (!dom.bookReviewUserList) return;
+  const users = getFilteredBookReviewUsers();
+  if (!users.length) {
+    dom.bookReviewUserList.innerHTML = `<div class="empty-state">Aucun utilisateur ne correspond aux filtres.</div>`;
+    return;
+  }
+  dom.bookReviewUserList.innerHTML = users.map((user) => {
+    const active = state.selectedBookReviewEmail === user.email;
+    const loading = state.loadingBookReviewEmail === user.email;
+    return `
+      <button class="reading-check-user-btn book-review-user-btn${active ? " is-active" : ""}" type="button" data-book-review-email="${escapeHtml(user.email)}">
+        <span class="reading-check-user-name">${escapeHtml(getBookReviewUserName(user))}</span>
+        <span class="reading-check-user-email">${escapeHtml(user.email)}</span>
+        <span class="book-review-user-meta">
+          <span class="badge ${getBookReviewStatusClass(user.status)}">${escapeHtml(getBookReviewStatusLabel(user.status))}</span>
+          <span class="book-review-progress">${Math.round(Number(user.progressPercent) || 0)} %</span>
+          ${user.isExternal ? `<span class="badge hidden">Externe</span>` : ""}
+          ${loading ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}
+        </span>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderBookReviewDetails() {
+  if (!dom.bookReviewDetails) return;
+  const payload = state.bookReviewData;
+  if (!payload?.book) {
+    dom.bookReviewDetails.innerHTML = `<div class="empty-state">Choisis un livre pour consulter l'activité de lecture.</div>`;
+    return;
+  }
+  const book = payload.book;
+  const selected = (payload.users || []).find((user) => user.email === state.selectedBookReviewEmail) || null;
+  const countsLine = `${Number(book.visiblePageCount) || Number(book.totalPages) || 0} page(s) visibles${Number(book.hiddenPagesCount) ? ` sur ${Number(book.totalPages) || 0}` : ""}`;
+  const hiddenLine = Number(book.hiddenPagesCount) ? `Pages masquées: ${escapeHtml(book.hiddenPageRanges || book.hiddenPagesList?.join(", ") || "")}` : "Aucune page masquée";
+  if (!selected) {
+    dom.bookReviewDetails.innerHTML = `
+      <div class="reading-check-user-heading">
+        <h4>${escapeHtml(book.title || "Livre")}</h4>
+        <p>${escapeHtml(countsLine)} - ${escapeHtml(hiddenLine)}</p>
+      </div>
+      <div class="empty-state">Choisis un élève dans la liste pour consulter ses données sur ce livre.</div>
+    `;
+    return;
+  }
+  const bookmarks = Array.isArray(selected.bookmarks) ? selected.bookmarks : [];
+  const notes = Array.isArray(selected.notes) ? selected.notes : [];
+  const bookmarkHtml = bookmarks.length
+    ? `<div class="reading-check-chip-list">${bookmarks.map((bookmark) => {
+        const page = Number(bookmark.page) || 0;
+        const label = String(bookmark.label || "").trim();
+        return `<div class="reading-check-chip">${label ? `<strong>${escapeHtml(label)}</strong>` : "<strong>Signet</strong>"}<span>Page ${page}</span></div>`;
+      }).join("")}</div>`
+    : `<div class="empty-state">Aucun signet enregistré.</div>`;
+  const notesHtml = notes.length
+    ? `<div class="reading-check-note-list">${notes.map((note) => `
+        <div class="reading-check-note">
+          <div class="reading-check-note-meta">Page ${Number(note.page) || 0}${note.updatedAt ? ` - ${escapeHtml(formatDateTime(note.updatedAt))}` : ""}</div>
+          <div class="reading-check-note-text">${escapeHtml(note.noteText || "")}</div>
+        </div>
+      `).join("")}</div>`
+    : `<div class="empty-state">Aucune note enregistrée.</div>`;
+  dom.bookReviewDetails.innerHTML = `
+    <div class="reading-check-user-heading">
+      <h4>${escapeHtml(getBookReviewUserName(selected))}</h4>
+      <p>${escapeHtml(book.title || "Livre")} - ${escapeHtml(selected.email || "")}</p>
+    </div>
+    <div class="reading-check-summary">
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Statut</div><div class="reading-check-summary-value">${escapeHtml(getBookReviewStatusLabel(selected.status))}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Progression</div><div class="reading-check-summary-value">${Number(selected.currentPage) || 0} / ${Number(selected.totalPages) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selected.readingSeconds))}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${selected.lastUpdated ? escapeHtml(formatDateTime(selected.lastUpdated)) : "Aucune donnée"}</div></div>
+    </div>
+    <div class="reading-check-book-card book-review-detail-card">
+      <div class="reading-check-book-head">
+        <div>
+          <h5>${escapeHtml(book.title || "Livre")}</h5>
+          <p>${escapeHtml(countsLine)} - ${escapeHtml(hiddenLine)}</p>
+        </div>
+        <div class="badge ${getBookReviewStatusClass(selected.status)}">${Math.round(Number(selected.progressPercent) || 0)} %</div>
+      </div>
+      <div class="reading-check-book-stats">
+        <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière ouverture</div><div class="reading-check-stat-value">${selected.lastOpenedAt ? escapeHtml(formatDateTime(selected.lastOpenedAt)) : "Aucune donnée"}</div></div>
+        <div class="reading-check-stat"><div class="reading-check-stat-label">Signets</div><div class="reading-check-stat-value">${bookmarks.length}</div></div>
+        <div class="reading-check-stat"><div class="reading-check-stat-label">Notes</div><div class="reading-check-stat-value">${notes.length}</div></div>
+      </div>
+      <div class="reading-check-book-sections">
+        <section class="reading-check-section">
+          <div class="reading-check-section-title">Signets</div>
+          ${bookmarkHtml}
+        </section>
+        <section class="reading-check-section">
+          <div class="reading-check-section-title">Notes</div>
+          ${notesHtml}
+        </section>
+      </div>
+    </div>
+  `;
+}
+
+function selectBookReviewUser(email) {
+  state.selectedBookReviewEmail = normalizeEmail(email);
+  renderBookReviewUserList();
+  renderBookReviewDetails();
+}
+
+async function loadBookReadingOverview(bookId) {
+  const targetBookId = String(bookId || "").trim();
+  if (!targetBookId || !state.adminUnlocked || !canSeeAdminPanel()) return;
+  state.loadingBookReviewId = targetBookId;
+  if (dom.bookReviewStatus) {
+    dom.bookReviewStatus.className = "save-status";
+    dom.bookReviewStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement du suivi du livre…</span>`;
+  }
+  renderAdminBooks();
+  try {
+    const response = await jsonp("getBookReadingOverview", {
+      email: state.email,
+      adminCode: state.adminCode,
+      bookId: targetBookId,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger le suivi du livre.");
+    state.bookReviewData = response;
+    state.selectedBookReviewEmail = "";
+    renderBookReviewSummary();
+    renderBookReviewUserList();
+    const firstUser = getFilteredBookReviewUsers()[0];
+    if (firstUser) state.selectedBookReviewEmail = firstUser.email;
+    renderBookReviewUserList();
+    renderBookReviewDetails();
+    if (dom.bookReviewSubhead) {
+      const book = response.book || {};
+      dom.bookReviewSubhead.textContent = `${book.title || "Livre"} - ${Number(book.visiblePageCount) || Number(book.totalPages) || 0} page(s) visibles pour ${Number(response.summary?.eligibleUsers) || 0} utilisateur(s).`;
+    }
+    if (dom.bookReviewStatus) dom.bookReviewStatus.textContent = "";
+  } catch (error) {
+    console.error(error);
+    state.bookReviewData = null;
+    renderBookReviewSummary();
+    renderBookReviewUserList();
+    renderBookReviewDetails();
+    if (dom.bookReviewStatus) {
+      dom.bookReviewStatus.className = "save-status status-error";
+      dom.bookReviewStatus.textContent = error.message || "Erreur lors du chargement.";
+    }
+  } finally {
+    state.loadingBookReviewId = "";
+    renderAdminBooks();
+  }
+}
+
+async function openBookReviewModal(bookId) {
+  if (!state.adminUnlocked || !canSeeAdminPanel() || !dom.bookReviewModal) return;
+  dom.bookReviewModal.hidden = false;
+  if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
+  if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = "name";
+  if (dom.bookReviewFilterSelect) dom.bookReviewFilterSelect.value = "all";
+  if (dom.bookReviewShowExternalInput) dom.bookReviewShowExternalInput.checked = false;
+  state.bookReviewSortMode = "name";
+  state.bookReviewFilterMode = "all";
+  state.bookReviewShowExternal = false;
+  renderBookReviewSummary();
+  renderBookReviewUserList();
+  renderBookReviewDetails();
+  await loadBookReadingOverview(bookId);
+}
+
+function closeBookReviewModal() {
+  if (!dom.bookReviewModal) return;
+  dom.bookReviewModal.hidden = true;
 }
 
 function normalizeRestoredDisplayPage(pageNumber) {
@@ -3057,6 +3335,40 @@ function attachEvents() {
     if (!btn) return;
     void loadStudentReadingOverview(btn.dataset.readingCheckEmail);
   });
+  on(dom.bookReviewCloseBtn, "click", closeBookReviewModal);
+  on(dom.bookReviewModal, "click", (e) => { if (e.target === dom.bookReviewModal) closeBookReviewModal(); });
+  on(dom.bookReviewSearchInput, "input", () => {
+    renderBookReviewUserList();
+    const firstUser = getFilteredBookReviewUsers()[0];
+    if (state.selectedBookReviewEmail && !getFilteredBookReviewUsers().some((user) => user.email === state.selectedBookReviewEmail)) {
+      state.selectedBookReviewEmail = firstUser ? firstUser.email : "";
+    }
+    renderBookReviewUserList();
+    renderBookReviewDetails();
+  });
+  on(dom.bookReviewSortSelect, "change", () => { renderBookReviewUserList(); renderBookReviewDetails(); });
+  on(dom.bookReviewFilterSelect, "change", () => {
+    const firstUser = getFilteredBookReviewUsers()[0];
+    if (!getFilteredBookReviewUsers().some((user) => user.email === state.selectedBookReviewEmail)) {
+      state.selectedBookReviewEmail = firstUser ? firstUser.email : "";
+    }
+    renderBookReviewUserList();
+    renderBookReviewDetails();
+  });
+  on(dom.bookReviewShowExternalInput, "change", () => {
+    const firstUser = getFilteredBookReviewUsers()[0];
+    if (!getFilteredBookReviewUsers().some((user) => user.email === state.selectedBookReviewEmail)) {
+      state.selectedBookReviewEmail = firstUser ? firstUser.email : "";
+    }
+    renderBookReviewSummary();
+    renderBookReviewUserList();
+    renderBookReviewDetails();
+  });
+  on(dom.bookReviewUserList, "click", (e) => {
+    const btn = e.target.closest("[data-book-review-email]");
+    if (!btn) return;
+    selectBookReviewUser(btn.dataset.bookReviewEmail);
+  });
   on(dom.editBookSaveBtn, "click", saveEditBook);
   on(dom.editBookCancelBtn, "click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = ""; });
   on(dom.editBookModal, "click", (e) => {
@@ -3110,6 +3422,7 @@ function attachEvents() {
   // Délégations — admin livres
   on(dom.adminBooksList, "click", async (e) => {
     const openBtn = e.target.closest("[data-open-book]");
+    const reviewBtn = e.target.closest("[data-review-book]");
     const toggleBtn = e.target.closest("[data-toggle-book]");
     const pdfBtn = e.target.closest("[data-toggle-pdf]");
     const editBtn = e.target.closest("[data-edit-book]");
@@ -3129,6 +3442,7 @@ function attachEvents() {
       }
       return;
     }
+    if (reviewBtn) { await openBookReviewModal(reviewBtn.dataset.reviewBook); return; }
     if (toggleBtn) { await toggleBookPublished(toggleBtn.dataset.toggleBook); return; }
     if (pdfBtn) { await toggleBookPdfAllowed(pdfBtn.dataset.togglePdf); return; }
     if (editBtn) { await openEditBookModal(editBtn.dataset.editBook); }

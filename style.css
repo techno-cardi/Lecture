@@ -1178,3 +1178,64 @@ textarea,
     max-height: 240px;
   }
 }
+
+
+.book-review-modal-panel {
+  width: min(96vw, 1480px);
+  max-height: min(92vh, 980px);
+}
+.book-review-toolbar {
+  align-items: end;
+}
+.book-review-toggle {
+  min-height: 52px;
+  align-self: end;
+  padding: 0 4px 6px;
+}
+.book-review-layout {
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+}
+.book-review-users-pane {
+  display: grid;
+  gap: 14px;
+}
+.book-review-summary-strip {
+  display: grid;
+  gap: 12px;
+}
+.book-review-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.book-review-user-btn {
+  align-items: flex-start;
+}
+.book-review-user-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.book-review-progress {
+  font-weight: 700;
+  color: var(--muted);
+}
+.book-review-detail-card {
+  margin-top: 18px;
+}
+.status-started {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+@media (max-width: 900px) {
+  .book-review-layout {
+    grid-template-columns: 1fr;
+  }
+  .book-review-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .book-review-summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
