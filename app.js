@@ -555,6 +555,23 @@ function buildBookSnapshot(book) {
     visiblePageCount: Number(book.visiblePageCount) || 0,
     hiddenPagesCount: Number(book.hiddenPagesCount) || 0,
     hiddenPagesList: Array.isArray(book.hiddenPagesList) ? [...book.hiddenPagesList] : [],
+    currentPage: Number(book.currentPage) || 0,
+    progressPercent: Number(book.progressPercent) || 0,
+    lastUpdated: book.lastUpdated || "",
+    progressLastUpdated: book.progressLastUpdated || book.lastUpdated || "",
+    lastOpenedAt: book.lastOpenedAt || "",
+    firstOpenedAt: book.firstOpenedAt || "",
+    readingSeconds: Number(book.readingSeconds) || 0,
+    sessionCount: Number(book.sessionCount) || 0,
+    averageSessionSeconds: Number(book.averageSessionSeconds) || 0,
+    lastPageVisited: Number(book.lastPageVisited) || 0,
+    completedAt: book.completedAt || "",
+    bookmarksCount: Number(book.bookmarksCount) || 0,
+    notesCount: Number(book.notesCount) || 0,
+    viewedPagesCount: Number(book.viewedPagesCount) || 0,
+    totalPageViews: Number(book.totalPageViews) || 0,
+    lastViewedPage: Number(book.lastViewedPage) || 0,
+    readingStatus: book.readingStatus || "",
   };
 }
 
@@ -2074,19 +2091,27 @@ function toggleFocusMode() {
 
 function getEffectiveBookStatus(book) {
   const explicitStatus = String(book?.readingStatus || '').trim();
-  if (explicitStatus === 'completed' || explicitStatus === 'started' || explicitStatus === 'not_started') {
-    return explicitStatus;
-  }
   const visiblePages = Number(book?.visiblePageCount) || Number(book?.totalPages) || 0;
   const currentPage = Number(book?.currentPage) || 0;
+  const lastPageVisited = Number(book?.lastPageVisited) || 0;
+  const viewedPagesCount = Number(book?.viewedPagesCount) || 0;
+  const totalPageViews = Number(book?.totalPageViews) || 0;
   const progressPercent = Number(book?.progressPercent) || 0;
-  const hasOpened = !!(book?.lastOpenedAt || book?.firstOpenedAt || book?.lastUpdated || book?.progressLastUpdated);
+  const hasOpened = !!(book?.lastOpenedAt || book?.firstOpenedAt || book?.lastUpdated || book?.progressLastUpdated || book?.completedAt);
   const hasReadingActivity = hasOpened
     || currentPage > 0
+    || lastPageVisited > 0
+    || viewedPagesCount > 0
+    || totalPageViews > 0
     || progressPercent > 0
+    || Number(book?.readingSeconds) > 0
+    || Number(book?.sessionCount) > 0
     || Number(book?.bookmarksCount) > 0
     || Number(book?.notesCount) > 0;
-  if ((visiblePages > 0 && currentPage >= visiblePages) || progressPercent >= 99.5) return 'completed';
+  if ((visiblePages > 0 && Math.max(currentPage, lastPageVisited) >= visiblePages) || progressPercent >= 99.5 || !!book?.completedAt || explicitStatus === 'completed') {
+    return 'completed';
+  }
+  if (explicitStatus === 'started') return 'started';
   if (hasReadingActivity) return 'started';
   return 'not_started';
 }
