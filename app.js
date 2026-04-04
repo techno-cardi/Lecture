@@ -74,6 +74,14 @@ const dom = {
   addUsersTextarea: document.getElementById("addUsersTextarea"),
   addUsersBtn: document.getElementById("addUsersBtn"),
   addUsersStatus: document.getElementById("addUsersStatus"),
+  studentCheckBtn: document.getElementById("studentCheckBtn"),
+  readingCheckModal: document.getElementById("readingCheckModal"),
+  readingCheckCloseBtn: document.getElementById("readingCheckCloseBtn"),
+  readingCheckSearchInput: document.getElementById("readingCheckSearchInput"),
+  readingCheckSortSelect: document.getElementById("readingCheckSortSelect"),
+  readingCheckStatus: document.getElementById("readingCheckStatus"),
+  readingCheckUserList: document.getElementById("readingCheckUserList"),
+  readingCheckDetails: document.getElementById("readingCheckDetails"),
 
   editBookModal: document.getElementById("editBookModal"),
   editBookTitle: document.getElementById("editBookTitle"),
@@ -196,6 +204,13 @@ const state = {
   editAssignedEmails: [],
   openingBookId: "",
   editBusyBookId: "",
+  selectedReadingCheckEmail: "",
+  readingCheckData: null,
+  loadingReadingCheckEmail: "",
+  readingCheckSortMode: "name",
+  pendingReadingSeconds: 0,
+  readingTickMs: 0,
+  currentBookOpenedAt: "",
 };
 
 // ════════════════════════════════════════
@@ -245,6 +260,31 @@ function normalizePersonName(value) {
 
 function getUserFirstName() {
   return normalizePersonName(state.userProfile?.firstName || "");
+}
+
+function getUserLastName() {
+  return normalizePersonName(state.userProfile?.lastName || "");
+}
+
+function getReadingCheckUserName(user) {
+  const lastName = normalizePersonName(user?.lastName || "");
+  const firstName = normalizePersonName(user?.firstName || "");
+  if (lastName && firstName) return `${lastName} ${firstName}`;
+  return lastName || firstName || String(user?.email || "");
+}
+
+function formatReadingDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  if (!seconds) return "Aucune donnée";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours) return `${hours} h ${String(minutes).padStart(2, "0")} min`;
+  if (minutes) return `${minutes} min`;
+  return `${seconds} s`;
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\]/g, "\$&");
 }
 
 function showToast(message) {
@@ -311,6 +351,7 @@ function applyAdminVisibility() {
   dom.publishForm.hidden = !showUnlocked;
   dom.githubTestRow.hidden = !showUnlocked;
   dom.addUsersSection.hidden = !showUnlocked;
+  if (dom.studentCheckBtn) dom.studentCheckBtn.hidden = !showUnlocked;
 }
 
 function resetAdminState() {
@@ -320,6 +361,11 @@ function resetAdminState() {
   state.assignableUsers = [];
   state.publishAssignedEmails = [];
   state.editAssignedEmails = [];
+  state.selectedReadingCheckEmail = "";
+  state.readingCheckData = null;
+  state.loadingReadingCheckEmail = "";
+  if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
+  if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
   dom.adminCodeInput.value = "";
   applyAdminVisibility();
   setPublishStatus("En attente");
@@ -407,11 +453,15 @@ function normalizeAssignedEmailList(value) {
     .filter((item, index, array) => item && isValidEmail(item) && array.indexOf(item) === index);
 }
 
+function normalizePageRangeText(value) {
+  return String(value || "").replace(/[‐‑‒–—−﹘﹣－]/g, "-");
+}
+
 function expandPageRanges(ranges, totalPages = 0) {
   const total = Math.max(0, Number(totalPages) || 0);
   const pages = [];
   const seen = new Set();
-  String(ranges || "")
+  normalizePageRangeText(ranges)
     .split(/[;,]+/)
     .map((part) => String(part || "").trim())
     .filter(Boolean)
@@ -546,6 +596,7 @@ async function loadAssignableUsers(force = false) {
   if (!force && state.assignableUsers.length) {
     renderAssignableUsers("publish");
     renderAssignableUsers("edit");
+    renderReadingCheckUserList();
     return;
   }
   try {
@@ -561,6 +612,7 @@ async function loadAssignableUsers(force = false) {
     })).filter((user) => user.email) : [];
     renderAssignableUsers("publish");
     renderAssignableUsers("edit");
+    renderReadingCheckUserList();
   } catch (error) {
     console.error(error);
   }
@@ -583,6 +635,201 @@ function updateAssignmentSelection(kind, email, checked) {
   else next.delete(normalizeEmail(email));
   state[key] = [...next];
   renderAssignableUsers(kind);
+}
+
+function getSortedReadingCheckUsers() {
+  const query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
+  const sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
+  state.readingCheckSortMode = sortMode;
+  return [...state.assignableUsers]
+    .filter((user) => {
+      if (!query) return true;
+      const haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
+      return haystack.includes(query);
+    })
+    .sort((left, right) => {
+      const leftKey = sortMode === "email"
+        ? left.email.toLowerCase()
+        : `${String(left.lastName || "").toLowerCase()}${String(left.firstName || "").toLowerCase()}${left.email.toLowerCase()}`;
+      const rightKey = sortMode === "email"
+        ? right.email.toLowerCase()
+        : `${String(right.lastName || "").toLowerCase()}${String(right.firstName || "").toLowerCase()}${right.email.toLowerCase()}`;
+      return leftKey.localeCompare(rightKey, "fr-CA");
+    });
+}
+
+function renderReadingCheckUserList() {
+  if (!dom.readingCheckUserList) return;
+  const users = getSortedReadingCheckUsers();
+  if (!users.length) {
+    dom.readingCheckUserList.innerHTML = `<div class="empty-state">Aucun utilisateur trouvé.</div>`;
+    return;
+  }
+  dom.readingCheckUserList.innerHTML = users.map((user) => {
+    const active = state.selectedReadingCheckEmail === user.email;
+    return `
+      <button class="reading-check-user-btn${active ? " is-active" : ""}" type="button" data-reading-check-email="${escapeHtml(user.email)}">
+        <span class="reading-check-user-name">${escapeHtml(getReadingCheckUserName(user))}</span>
+        <span class="reading-check-user-email">${escapeHtml(user.email)}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderReadingCheckDetails() {
+  if (!dom.readingCheckDetails) return;
+  const payload = state.readingCheckData;
+  if (!payload?.user) {
+    dom.readingCheckDetails.innerHTML = `<div class="empty-state">Sélectionne un élève pour consulter ses données de lecture.</div>`;
+    return;
+  }
+  const user = payload.user;
+  const summary = payload.summary || {};
+  const books = Array.isArray(payload.books) ? payload.books : [];
+  const userName = getReadingCheckUserName(user);
+  const bookCards = books.length ? books.map((book) => {
+    const bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks : [];
+    const notes = Array.isArray(book.notes) ? book.notes : [];
+    const bookmarkHtml = bookmarks.length
+      ? `<div class="reading-check-chip-list">${bookmarks.map((bookmark) => {
+          const page = Number(bookmark.page) || 0;
+          const label = String(bookmark.label || "").trim();
+          return `<div class="reading-check-chip">${label ? `<strong>${escapeHtml(label)}</strong>` : "<strong>Signet</strong>"}<span>Page ${page}</span></div>`;
+        }).join("")}</div>`
+      : `<div class="empty-state">Aucun signet enregistré.</div>`;
+    const notesHtml = notes.length
+      ? `<div class="reading-check-note-list">${notes.map((note) => `
+          <div class="reading-check-note">
+            <div class="reading-check-note-meta">Page ${Number(note.page) || 0}${note.updatedAt ? ` - ${escapeHtml(formatDateTime(note.updatedAt))}` : ""}</div>
+            <div class="reading-check-note-text">${escapeHtml(note.noteText || "")}</div>
+          </div>
+        `).join("")}</div>`
+      : `<div class="empty-state">Aucune note enregistrée.</div>`;
+    return `
+      <article class="reading-check-book-card">
+        <div class="reading-check-book-head">
+          <div>
+            <h5>${escapeHtml(book.title || book.bookId || "Livre")}</h5>
+            <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
+          </div>
+          <div class="badge published">${Math.round(Number(book.progressPercent) || 0)} %</div>
+        </div>
+        <div class="reading-check-book-stats">
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Progression</div>
+            <div class="reading-check-stat-value">Page ${Number(book.currentPage) || 0} / ${Number(book.totalPages) || 0}</div>
+          </div>
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Dernière ouverture</div>
+            <div class="reading-check-stat-value">${book.lastOpenedAt ? escapeHtml(formatDateTime(book.lastOpenedAt)) : "Aucune donnée"}</div>
+          </div>
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Temps de lecture</div>
+            <div class="reading-check-stat-value">${escapeHtml(formatReadingDuration(book.readingSeconds))}</div>
+          </div>
+        </div>
+        <div class="reading-check-book-stats">
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Dernière activité</div>
+            <div class="reading-check-stat-value">${book.lastUpdated ? escapeHtml(formatDateTime(book.lastUpdated)) : "Aucune donnée"}</div>
+          </div>
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Signets placés</div>
+            <div class="reading-check-stat-value">${bookmarks.length}</div>
+          </div>
+          <div class="reading-check-stat">
+            <div class="reading-check-stat-label">Notes écrites</div>
+            <div class="reading-check-stat-value">${notes.length}</div>
+          </div>
+        </div>
+        <div class="reading-check-book-sections">
+          <section class="reading-check-section">
+            <div class="reading-check-section-title">Signets</div>
+            ${bookmarkHtml}
+          </section>
+          <section class="reading-check-section">
+            <div class="reading-check-section-title">Notes</div>
+            ${notesHtml}
+          </section>
+        </div>
+      </article>
+    `;
+  }).join("") : `<div class="empty-state">Aucune activité de lecture enregistrée pour cet élève.</div>`;
+
+  dom.readingCheckDetails.innerHTML = `
+    <div class="reading-check-user-heading">
+      <h4>${escapeHtml(userName)}</h4>
+      <p>${escapeHtml(user.email || "")}</p>
+    </div>
+    <div class="reading-check-summary">
+      <div class="reading-check-summary-card">
+        <div class="reading-check-summary-label">Livres avec activité</div>
+        <div class="reading-check-summary-value">${Number(summary.booksStarted) || 0}</div>
+      </div>
+      <div class="reading-check-summary-card">
+        <div class="reading-check-summary-label">Signets</div>
+        <div class="reading-check-summary-value">${Number(summary.totalBookmarks) || 0}</div>
+      </div>
+      <div class="reading-check-summary-card">
+        <div class="reading-check-summary-label">Notes</div>
+        <div class="reading-check-summary-value">${Number(summary.totalNotes) || 0}</div>
+      </div>
+      <div class="reading-check-summary-card">
+        <div class="reading-check-summary-label">Temps de lecture</div>
+        <div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(summary.totalReadingSeconds))}</div>
+      </div>
+    </div>
+    <div class="reading-check-book-list">${bookCards}</div>
+  `;
+}
+
+async function loadStudentReadingOverview(targetEmail) {
+  const email = normalizeEmail(targetEmail);
+  if (!email || !state.adminUnlocked || !canSeeAdminPanel()) return;
+  state.selectedReadingCheckEmail = email;
+  state.loadingReadingCheckEmail = email;
+  renderReadingCheckUserList();
+  if (dom.readingCheckStatus) {
+    dom.readingCheckStatus.className = "save-status";
+    dom.readingCheckStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement des données de lecture…</span>`;
+  }
+  try {
+    const response = await jsonp("getStudentReadingOverview", {
+      email: state.email,
+      adminCode: state.adminCode,
+      targetEmail: email,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger les données de lecture.");
+    state.readingCheckData = response;
+    renderReadingCheckDetails();
+    if (dom.readingCheckStatus) dom.readingCheckStatus.textContent = "";
+  } catch (error) {
+    console.error(error);
+    state.readingCheckData = null;
+    renderReadingCheckDetails();
+    if (dom.readingCheckStatus) {
+      dom.readingCheckStatus.className = "save-status status-error";
+      dom.readingCheckStatus.textContent = error.message || "Erreur lors du chargement.";
+    }
+  } finally {
+    state.loadingReadingCheckEmail = "";
+    renderReadingCheckUserList();
+  }
+}
+
+async function openReadingCheckModal() {
+  if (!state.adminUnlocked || !canSeeAdminPanel()) return;
+  dom.readingCheckModal.hidden = false;
+  state.readingCheckSortMode = dom.readingCheckSortSelect?.value || "name";
+  if (dom.readingCheckStatus) dom.readingCheckStatus.textContent = "";
+  renderReadingCheckDetails();
+  await loadAssignableUsers(true);
+  renderReadingCheckUserList();
+}
+
+function closeReadingCheckModal() {
+  if (!dom.readingCheckModal) return;
+  dom.readingCheckModal.hidden = true;
 }
 
 function normalizeRestoredDisplayPage(pageNumber) {
@@ -620,7 +867,7 @@ function buildVisiblePages(totalPages, hiddenPageRanges = "") {
     return pages;
   }
   const hidden = new Set();
-  String(hiddenPageRanges)
+  normalizePageRangeText(hiddenPageRanges)
     .split(/[;,]+/)
     .map((part) => part.trim())
     .filter(Boolean)
@@ -818,6 +1065,9 @@ function resetSensitiveUiState() {
   state.authVerified = false;
   state.bookmarkActionBusy = false;
   state.isBookmarkSaving = false;
+  state.pendingReadingSeconds = 0;
+  state.readingTickMs = 0;
+  state.currentBookOpenedAt = "";
   if (dom.bookList) dom.bookList.innerHTML = "";
   if (dom.libraryGreeting) dom.libraryGreeting.textContent = "";
   if (dom.libraryMeta) dom.libraryMeta.textContent = "";
@@ -831,6 +1081,36 @@ function renderLibraryLoadingState(message) {
     ? `${state.email} - mode administrateur disponible`
     : state.email;
   dom.bookList.innerHTML = `<div class="empty-state loading-state"><span class="inline-spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
+}
+
+function startReadingTracking() {
+  state.pendingReadingSeconds = 0;
+  state.readingTickMs = Date.now();
+  state.currentBookOpenedAt = new Date().toISOString();
+}
+
+function accumulateReadingTime() {
+  const now = Date.now();
+  if (!state.readingTickMs) {
+    state.readingTickMs = now;
+    return;
+  }
+  if (state.currentBook && !dom.reader.hidden && !document.hidden) {
+    const deltaSeconds = Math.max(0, (now - state.readingTickMs) / 1000);
+    state.pendingReadingSeconds += deltaSeconds;
+  }
+  state.readingTickMs = now;
+}
+
+function consumeReadingSeconds() {
+  const wholeSeconds = Math.max(0, Math.floor(state.pendingReadingSeconds));
+  state.pendingReadingSeconds = Math.max(0, state.pendingReadingSeconds - wholeSeconds);
+  return wholeSeconds;
+}
+
+function stopReadingTracking() {
+  accumulateReadingTime();
+  state.readingTickMs = 0;
 }
 
 // ════════════════════════════════════════
@@ -1011,17 +1291,22 @@ async function fetchProgress(bookId) {
 }
 
 function buildProgressPayload() {
+  accumulateReadingTime();
   const progressPercent = state.totalPages
     ? Math.round((state.currentPage / state.totalPages) * 1000) / 10
     : 0;
-  return {
+  const readSecondsDelta = consumeReadingSeconds();
+  const payload = {
     email: state.email,
     bookId: state.currentBook?.bookId,
     title: state.currentBook?.title,
     currentPage: state.currentPage,
     totalPages: state.totalPages,
     progressPercent,
+    readSecondsDelta,
   };
+  if (state.currentBookOpenedAt) payload.lastOpenedAt = state.currentBookOpenedAt;
+  return payload;
 }
 
 async function saveProgress({ immediate = false, showSuccess = false, showError = false } = {}) {
@@ -1034,10 +1319,12 @@ async function saveProgress({ immediate = false, showSuccess = false, showError 
     const response = await jsonp("saveProgress", payload);
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
     state.lastSaveSignature = signature;
+    if (payload.lastOpenedAt) state.currentBookOpenedAt = "";
     setSaveStatus("Progression enregistrée", "success");
     if (showSuccess) showToast("Progression enregistrée");
   } catch (error) {
     console.error(error);
+    if (payload.readSecondsDelta) state.pendingReadingSeconds += Number(payload.readSecondsDelta) || 0;
     setSaveStatus("Sauvegarde impossible", "error");
     if (showError) showToast("Sauvegarde impossible");
   }
@@ -1667,6 +1954,8 @@ async function openBook(book, options = {}) {
     state.currentPage = Math.max(1, Math.min(state.totalPages, normalizeRestoredDisplayPage(restoredPage)));
     resetNoteEditor();
     await renderCurrentPage({ forceFit: true });
+    startReadingTracking();
+    await saveProgress({ immediate: true, showError: false, showSuccess: false });
     setSaveStatus("Prêt");
     saveCurrentBookState();
   } finally {
@@ -2658,6 +2947,7 @@ function attachEvents() {
     toggleMenu(false);
     setBookLoading(true, "Veuillez patienter, de retour à la bibliothèque…");
     try {
+      stopReadingTracking();
       await saveProgress({ immediate: true, showError: false });
       clearCurrentBookState();
       state.currentBook = null;
@@ -2757,6 +3047,16 @@ function attachEvents() {
   on(dom.publishForm, "submit", publishBook);
   on(dom.reloadAdminBooksBtn, "click", refreshBooks);
   on(dom.addUsersBtn, "click", addUsersInBulk);
+  on(dom.studentCheckBtn, "click", openReadingCheckModal);
+  on(dom.readingCheckCloseBtn, "click", closeReadingCheckModal);
+  on(dom.readingCheckModal, "click", (e) => { if (e.target === dom.readingCheckModal) closeReadingCheckModal(); });
+  on(dom.readingCheckSearchInput, "input", renderReadingCheckUserList);
+  on(dom.readingCheckSortSelect, "change", renderReadingCheckUserList);
+  on(dom.readingCheckUserList, "click", (e) => {
+    const btn = e.target.closest("[data-reading-check-email]");
+    if (!btn) return;
+    void loadStudentReadingOverview(btn.dataset.readingCheckEmail);
+  });
   on(dom.editBookSaveBtn, "click", saveEditBook);
   on(dom.editBookCancelBtn, "click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = ""; });
   on(dom.editBookModal, "click", (e) => {
@@ -2875,15 +3175,22 @@ function attachEvents() {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       if (state.currentBook) saveCurrentBookState();
+      stopReadingTracking();
       saveProgress({ immediate: true, showError: false });
+    } else if (state.currentBook) {
+      state.readingTickMs = Date.now();
     }
   });
   window.addEventListener("pagehide", () => {
-    if (state.currentBook) saveCurrentBookState();
+    if (state.currentBook) {
+      saveCurrentBookState();
+      stopReadingTracking();
+    }
   });
   window.addEventListener("beforeunload", () => {
     if (state.currentBook) {
       saveCurrentBookState();
+      stopReadingTracking();
       saveProgress({ immediate: true, showError: false });
     }
   });

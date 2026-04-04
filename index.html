@@ -10,7 +10,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <title>Lecteur scolaire</title>
   <link rel="manifest" href="./manifest.json">
-  <link rel="stylesheet" href="./style.css?v=20260404v16">
+  <link rel="stylesheet" href="./style.css?v=20260404v18">
 </head>
 <body>
   <div class="app-shell">
@@ -80,6 +80,9 @@
             <p class="eyebrow">Administration</p>
             <h3>Préparer et publier un livre</h3>
             <p class="admin-help">La conversion PDF vers JSON se fait ici, une seule fois, avant la lecture des élèves.</p>
+          </div>
+          <div class="admin-head-actions">
+            <button id="studentCheckBtn" class="secondary-btn" type="button" hidden>Vérification de la lecture d'un élève</button>
           </div>
         </div>
 
@@ -222,6 +225,41 @@
           <button id="editBookSaveBtn" class="nav-btn" type="button">Enregistrer</button>
           <button id="editBookCancelBtn" class="ghost-btn" type="button">Annuler</button>
           <span id="editBookStatus" class="save-status"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal vérification de la lecture d'un élève -->
+    <div id="readingCheckModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel reading-check-modal-panel">
+        <div class="reading-check-header">
+          <div>
+            <div class="font-modal-title">Vérification de la lecture d'un élève</div>
+            <p class="admin-help modal-help">Sélectionne un élève pour consulter sa progression, ses signets et ses notes.</p>
+          </div>
+          <button id="readingCheckCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+        </div>
+        <div class="reading-check-toolbar">
+          <label class="reading-check-field" for="readingCheckSearchInput">
+            <span>Rechercher un utilisateur</span>
+            <input id="readingCheckSearchInput" type="text" placeholder="Nom, prénom ou courriel">
+          </label>
+          <label class="reading-check-field reading-check-sort-field" for="readingCheckSortSelect">
+            <span>Trier par</span>
+            <select id="readingCheckSortSelect">
+              <option value="name">Nom, prénom</option>
+              <option value="email">Adresse courriel</option>
+            </select>
+          </label>
+        </div>
+        <div id="readingCheckStatus" class="save-status"></div>
+        <div class="reading-check-layout">
+          <aside class="reading-check-users-pane">
+            <div id="readingCheckUserList" class="reading-check-user-list"></div>
+          </aside>
+          <section id="readingCheckDetails" class="reading-check-details">
+            <div class="empty-state">Sélectionne un élève pour consulter ses données de lecture.</div>
+          </section>
         </div>
       </div>
     </div>
@@ -394,7 +432,7 @@
   </div>
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
-  <script src="./config.js?v=20260404v16"></script>
-  <script type="module" src="./app.js?v=20260404v16"></script>
+  <script src="./config.js?v=20260404v18"></script>
+  <script type="module" src="./app.js?v=20260404v18"></script>
 </body>
 </html>
