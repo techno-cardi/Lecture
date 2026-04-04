@@ -222,6 +222,7 @@ const state = {
   bookmarkActionBusy: false,
   currentPdfRenderTask: null,
   assignableUsers: [],
+  loadingAssignableUsers: false,
   publishAssignedEmails: [],
   editAssignedEmails: [],
   openingBookId: "",
@@ -229,6 +230,8 @@ const state = {
   selectedReadingCheckEmail: "",
   readingCheckData: null,
   loadingReadingCheckEmail: "",
+  pendingReadingCheckUser: null,
+  readingCheckBookFilters: [],
   readingCheckSortMode: "name",
   readingCheckShowExternal: false,
   selectedBookReviewEmail: "",
@@ -745,6 +748,8 @@ async function loadAssignableUsers(force = false) {
     renderReadingCheckUserList();
     return;
   }
+  state.loadingAssignableUsers = true;
+  renderReadingCheckUserList();
   try {
     const response = await jsonp("listAssignableUsers", {
       email: state.email,
@@ -762,6 +767,12 @@ async function loadAssignableUsers(force = false) {
     renderReadingCheckUserList();
   } catch (error) {
     console.error(error);
+    if (dom.readingCheckUserList && !state.assignableUsers.length) {
+      dom.readingCheckUserList.innerHTML = `<div class="empty-state">Impossible de charger la liste des utilisateurs.</div>`;
+    }
+  } finally {
+    state.loadingAssignableUsers = false;
+    renderReadingCheckUserList();
   }
 }
 
@@ -808,8 +819,47 @@ function getSortedReadingCheckUsers() {
     });
 }
 
+function getPendingReadingCheckUser() {
+  const selectedEmail = normalizeEmail(state.loadingReadingCheckEmail || state.selectedReadingCheckEmail);
+  if (!selectedEmail) return state.pendingReadingCheckUser || null;
+  return state.assignableUsers.find((user) => normalizeEmail(user.email) === selectedEmail)
+    || state.pendingReadingCheckUser
+    || null;
+}
+
+function getReadingCheckBookKey(book, index) {
+  return String(book?.bookId || book?.title || `book-${index}`);
+}
+
+function getVisibleReadingCheckBooks(allBooks) {
+  const filters = new Set((Array.isArray(state.readingCheckBookFilters) ? state.readingCheckBookFilters : []).map(String));
+  if (!filters.size) return allBooks;
+  return allBooks.filter((book, index) => filters.has(getReadingCheckBookKey(book, index)));
+}
+
+function computeReadingCheckSummaryFromBooks(books) {
+  const summary = {
+    booksStarted: books.length,
+    totalBookmarks: 0,
+    totalNotes: 0,
+    totalReadingSeconds: 0,
+    totalSessions: 0,
+  };
+  books.forEach((book) => {
+    summary.totalBookmarks += Array.isArray(book.bookmarks) ? book.bookmarks.length : 0;
+    summary.totalNotes += Array.isArray(book.notes) ? book.notes.length : 0;
+    summary.totalReadingSeconds += Number(book.readingSeconds) || 0;
+    summary.totalSessions += Number(book.sessionCount) || 0;
+  });
+  return summary;
+}
+
 function renderReadingCheckUserList() {
   if (!dom.readingCheckUserList) return;
+  if (state.loadingAssignableUsers && !state.assignableUsers.length) {
+    dom.readingCheckUserList.innerHTML = `<div class="empty-state"><span class="inline-spinner" aria-hidden="true"></span><span>Liste d'utilisateurs en cours de chargement.</span></div>`;
+    return;
+  }
   const users = getSortedReadingCheckUsers();
   if (!users.length) {
     dom.readingCheckUserList.innerHTML = `<div class="empty-state">Aucun utilisateur trouvé.</div>`;
@@ -832,14 +882,45 @@ function renderReadingCheckUserList() {
 function renderReadingCheckDetails() {
   if (!dom.readingCheckDetails) return;
   const payload = state.readingCheckData;
-  if (!payload?.user) {
+  const pendingUser = getPendingReadingCheckUser();
+  const payloadUser = payload?.user || null;
+  const selectedUser = payloadUser || pendingUser;
+  const isLoading = !!state.loadingReadingCheckEmail;
+
+  if (!selectedUser) {
     dom.readingCheckDetails.innerHTML = `<div class="empty-state">Sélectionne un élève pour consulter ses données de lecture.</div>`;
     return;
   }
-  const user = payload.user;
-  const summary = payload.summary || {};
-  const books = Array.isArray(payload.books) ? payload.books : [];
-  const userName = getReadingCheckUserName(user);
+
+  const userName = getReadingCheckUserName(selectedUser);
+  const allBooks = Array.isArray(payload?.books) ? payload.books : [];
+  const filterOptions = allBooks.map((book, index) => ({
+    key: getReadingCheckBookKey(book, index),
+    label: String(book.title || book.bookId || `Livre ${index + 1}`),
+  }));
+  if (!Array.isArray(state.readingCheckBookFilters) || !state.readingCheckBookFilters.length) {
+    state.readingCheckBookFilters = filterOptions.map((item) => item.key);
+  } else {
+    const allowed = new Set(filterOptions.map((item) => item.key));
+    state.readingCheckBookFilters = state.readingCheckBookFilters.filter((key) => allowed.has(String(key)));
+    if (!state.readingCheckBookFilters.length && filterOptions.length) {
+      state.readingCheckBookFilters = filterOptions.map((item) => item.key);
+    }
+  }
+
+  const books = getVisibleReadingCheckBooks(allBooks);
+  const summary = computeReadingCheckSummaryFromBooks(books);
+  const filtersHtml = filterOptions.length > 1 ? `
+    <div class="reading-check-book-filter-block">
+      <div class="reading-check-book-filter-title">Livres à afficher dans les statistiques</div>
+      <div class="reading-check-book-filter-list">
+        ${filterOptions.map((item) => {
+          const checked = state.readingCheckBookFilters.includes(item.key);
+          return `<label class="reading-check-book-filter-item"><input type="checkbox" data-reading-check-book-filter="${escapeHtml(item.key)}" ${checked ? "checked" : ""}><span>${escapeHtml(item.label)}</span></label>`;
+        }).join("")}
+      </div>
+    </div>` : "";
+
   const bookCards = books.length ? books.map((book) => {
     const bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks : [];
     const notes = Array.isArray(book.notes) ? book.notes : [];
@@ -868,40 +949,16 @@ function renderReadingCheckDetails() {
           <div class="badge published">${Math.round(Number(book.progressPercent) || 0)} %</div>
         </div>
         <div class="reading-check-book-stats">
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Progression</div>
-            <div class="reading-check-stat-value">Page ${Number(book.currentPage) || 0} / ${Number(book.totalPages) || 0}</div>
-          </div>
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Dernière ouverture</div>
-            <div class="reading-check-stat-value">${book.lastOpenedAt ? escapeHtml(formatDateTime(book.lastOpenedAt)) : "Aucune donnée"}</div>
-          </div>
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Temps de lecture</div>
-            <div class="reading-check-stat-value">${escapeHtml(formatReadingDuration(book.readingSeconds))}</div>
-          </div>
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Première ouverture</div>
-            <div class="reading-check-stat-value">${book.firstOpenedAt ? escapeHtml(formatDateTime(book.firstOpenedAt)) : "Aucune donnée"}</div>
-          </div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Progression</div><div class="reading-check-stat-value">Page ${Number(book.currentPage) || 0} / ${Number(book.totalPages) || 0}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière ouverture</div><div class="reading-check-stat-value">${book.lastOpenedAt ? escapeHtml(formatDateTime(book.lastOpenedAt)) : "Aucune donnée"}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Temps de lecture</div><div class="reading-check-stat-value">${escapeHtml(formatReadingDuration(book.readingSeconds))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Première ouverture</div><div class="reading-check-stat-value">${book.firstOpenedAt ? escapeHtml(formatDateTime(book.firstOpenedAt)) : "Aucune donnée"}</div></div>
         </div>
         <div class="reading-check-book-stats">
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Dernière activité</div>
-            <div class="reading-check-stat-value">${book.lastUpdated ? escapeHtml(formatDateTime(book.lastUpdated)) : "Aucune donnée"}</div>
-          </div>
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Séances</div>
-            <div class="reading-check-stat-value">${Number(book.sessionCount) || 0}</div>
-          </div>
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Moyenne / séance</div>
-            <div class="reading-check-stat-value">${escapeHtml(formatSessionAverage(book.averageSessionSeconds))}</div>
-          </div>
-          <div class="reading-check-stat">
-            <div class="reading-check-stat-label">Pages vues</div>
-            <div class="reading-check-stat-value">${Number(book.viewedPagesCount) || 0}</div>
-          </div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière activité</div><div class="reading-check-stat-value">${book.lastUpdated ? escapeHtml(formatDateTime(book.lastUpdated)) : "Aucune donnée"}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Séances</div><div class="reading-check-stat-value">${Number(book.sessionCount) || 0}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Moyenne / séance</div><div class="reading-check-stat-value">${escapeHtml(formatSessionAverage(book.averageSessionSeconds))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Pages vues</div><div class="reading-check-stat-value">${Number(book.viewedPagesCount) || 0}</div></div>
         </div>
         <div class="reading-check-book-sections">
           <section class="reading-check-section">
@@ -922,33 +979,24 @@ function renderReadingCheckDetails() {
   }).join("") : `<div class="empty-state">Aucune activité de lecture enregistrée pour cet élève.</div>`;
 
   dom.readingCheckDetails.innerHTML = `
-    <div class="reading-check-user-heading">
-      <h4>${escapeHtml(userName)}</h4>
-      <p>${escapeHtml(user.email || "")}</p>
+    <div class="reading-check-details-shell${isLoading ? ' is-loading' : ''}">
+      <div class="reading-check-details-content">
+        <div class="reading-check-user-heading">
+          <h4>${escapeHtml(userName)}</h4>
+          <p>${escapeHtml(selectedUser.email || "")}</p>
+        </div>
+        ${filtersHtml}
+        <div class="reading-check-summary">
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres avec activité</div><div class="reading-check-summary-value">${Number(summary.booksStarted) || 0}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(summary.totalBookmarks) || 0}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(summary.totalNotes) || 0}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(summary.totalReadingSeconds))}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div></div>
+        </div>
+        <div class="reading-check-book-list">${bookCards}</div>
+      </div>
+      ${isLoading ? `<div class="reading-check-overlay"><div class="reading-check-overlay-card"><span class="inline-spinner" aria-hidden="true"></span><span>Chargement des données en cours…</span></div></div>` : ''}
     </div>
-    <div class="reading-check-summary">
-      <div class="reading-check-summary-card">
-        <div class="reading-check-summary-label">Livres avec activité</div>
-        <div class="reading-check-summary-value">${Number(summary.booksStarted) || 0}</div>
-      </div>
-      <div class="reading-check-summary-card">
-        <div class="reading-check-summary-label">Signets</div>
-        <div class="reading-check-summary-value">${Number(summary.totalBookmarks) || 0}</div>
-      </div>
-      <div class="reading-check-summary-card">
-        <div class="reading-check-summary-label">Notes</div>
-        <div class="reading-check-summary-value">${Number(summary.totalNotes) || 0}</div>
-      </div>
-      <div class="reading-check-summary-card">
-        <div class="reading-check-summary-label">Temps de lecture</div>
-        <div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(summary.totalReadingSeconds))}</div>
-      </div>
-      <div class="reading-check-summary-card">
-        <div class="reading-check-summary-label">Séances</div>
-        <div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div>
-      </div>
-    </div>
-    <div class="reading-check-book-list">${bookCards}</div>
   `;
 }
 
@@ -957,10 +1005,12 @@ async function loadStudentReadingOverview(targetEmail) {
   if (!email || !state.adminUnlocked || !canSeeAdminPanel()) return;
   state.selectedReadingCheckEmail = email;
   state.loadingReadingCheckEmail = email;
+  state.pendingReadingCheckUser = state.assignableUsers.find((user) => normalizeEmail(user.email) === email) || { email };
   renderReadingCheckUserList();
+  renderReadingCheckDetails();
   if (dom.readingCheckStatus) {
     dom.readingCheckStatus.className = "save-status reading-check-status";
-    dom.readingCheckStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement des données de lecture…</span>`;
+    dom.readingCheckStatus.textContent = "";
   }
   try {
     const response = await jsonp("getStudentReadingOverview", {
@@ -970,8 +1020,10 @@ async function loadStudentReadingOverview(targetEmail) {
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible de charger les données de lecture.");
     state.readingCheckData = response;
+    state.pendingReadingCheckUser = response.user || state.pendingReadingCheckUser;
+    const books = Array.isArray(response.books) ? response.books : [];
+    state.readingCheckBookFilters = books.map((book, index) => getReadingCheckBookKey(book, index));
     renderReadingCheckDetails();
-    if (dom.readingCheckStatus) dom.readingCheckStatus.textContent = "";
   } catch (error) {
     console.error(error);
     state.readingCheckData = null;
@@ -983,6 +1035,7 @@ async function loadStudentReadingOverview(targetEmail) {
   } finally {
     state.loadingReadingCheckEmail = "";
     renderReadingCheckUserList();
+    renderReadingCheckDetails();
   }
 }
 
@@ -998,18 +1051,27 @@ async function openReadingCheckModal() {
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   state.readingCheckSortMode = "name";
   state.readingCheckShowExternal = false;
+  state.readingCheckData = null;
+  state.pendingReadingCheckUser = null;
+  state.selectedReadingCheckEmail = "";
+  state.loadingReadingCheckEmail = "";
+  state.readingCheckBookFilters = [];
+  state.loadingAssignableUsers = true;
+  renderReadingCheckUserList();
+  renderReadingCheckDetails();
   if (dom.readingCheckStatus) {
     dom.readingCheckStatus.className = "save-status reading-check-status";
     dom.readingCheckStatus.textContent = "";
   }
-  renderReadingCheckDetails();
-  await loadAssignableUsers(true);
-  renderReadingCheckUserList();
+  void loadAssignableUsers(true);
 }
 
 function closeReadingCheckModal() {
   if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = true;
+  state.pendingReadingCheckUser = null;
+  state.loadingReadingCheckEmail = "";
+  state.readingCheckBookFilters = [];
   if (dom.readingCheckStatus) {
     dom.readingCheckStatus.textContent = "";
     dom.readingCheckStatus.className = "save-status reading-check-status";
@@ -2583,10 +2645,13 @@ async function unlockAdmin() {
     if (!response?.ok) throw new Error(response?.message || "Code invalide.");
     state.adminUnlocked = true;
     state.adminCode = code;
+    state.books = Array.isArray(response.books) ? response.books : [];
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
     applyAdminVisibility();
     setAdminUnlockStatus("Module administrateur déverrouillé.", "success");
-    await refreshBooks();
-    await loadAssignableUsers(true);
+    void loadAssignableUsers(true);
   } catch (error) {
     console.error(error);
     state.adminUnlocked = false;
@@ -3649,6 +3714,16 @@ function attachEvents() {
   on(dom.readingCheckSearchInput, "input", renderReadingCheckUserList);
   on(dom.readingCheckSortSelect, "change", renderReadingCheckUserList);
   on(dom.readingCheckShowExternalInput, "change", renderReadingCheckUserList);
+  on(dom.readingCheckDetails, "change", (e) => {
+    const input = e.target.closest("[data-reading-check-book-filter]");
+    if (!input) return;
+    const key = String(input.dataset.readingCheckBookFilter || "");
+    const next = new Set((Array.isArray(state.readingCheckBookFilters) ? state.readingCheckBookFilters : []).map(String));
+    if (input.checked) next.add(key);
+    else next.delete(key);
+    state.readingCheckBookFilters = [...next];
+    renderReadingCheckDetails();
+  });
   on(dom.readingCheckUserList, "click", (e) => {
     const btn = e.target.closest("[data-reading-check-email]");
     if (!btn) return;

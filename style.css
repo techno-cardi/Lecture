@@ -1828,3 +1828,121 @@ body.focus-mode-active .text-page {
     max-height: 220px;
   }
 }
+
+
+/* ════════════════════════════════════════
+   PATCH V25 — lecture élève modal + détails
+════════════════════════════════════════ */
+.reading-check-user-btn {
+  min-height: auto;
+  align-content: start;
+  overflow: visible;
+  padding: 14px 18px;
+}
+
+.reading-check-user-name,
+.reading-check-user-email {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+  text-rendering: geometricPrecision;
+}
+
+.reading-check-user-name {
+  font-size: 1rem;
+}
+
+.reading-check-user-email {
+  font-size: 0.95rem;
+}
+
+.reading-check-details {
+  position: relative;
+}
+
+.reading-check-details-shell {
+  position: relative;
+  min-height: 100%;
+}
+
+.reading-check-details-shell.is-loading .reading-check-details-content {
+  filter: blur(2px);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.reading-check-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.reading-check-overlay-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(248, 250, 252, 0.96);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  padding: 12px 16px;
+  box-shadow: var(--shadow);
+  font-weight: 700;
+}
+
+.reading-check-book-filter-block {
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.reading-check-book-filter-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.reading-check-book-filter-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.reading-check-book-filter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.reading-check-book-filter-item input {
+  margin: 0;
+}
+
+.reading-check-status .inline-spinner,
+.reading-check-overlay-card .inline-spinner,
+.reading-check-user-list .empty-state .inline-spinner {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 860px) {
+  .reading-check-book-filter-list {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .reading-check-book-filter-item {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
