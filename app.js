@@ -42,11 +42,13 @@ const dom = {
   libraryMeta: document.getElementById("libraryMeta"),
   bookList: document.getElementById("bookList"),
   refreshBooksBtn: document.getElementById("refreshBooksBtn"),
+  libraryInstallBtn: document.getElementById("libraryInstallBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
 
   adminPanel: document.getElementById("adminPanel"),
   adminCodeInput: document.getElementById("adminCodeInput"),
   unlockAdminBtn: document.getElementById("unlockAdminBtn"),
+  adminUnlockStatus: document.getElementById("adminUnlockStatus"),
   githubTestRow: document.getElementById("githubTestRow"),
   testGithubBtn: document.getElementById("testGithubBtn"),
   githubTestStatus: document.getElementById("githubTestStatus"),
@@ -148,6 +150,7 @@ const dom = {
   lineSpacingBtn: document.getElementById("lineSpacingBtn"),
   widthToggleBtn: document.getElementById("widthToggleBtn"),
   focusModeBtn: document.getElementById("focusModeBtn"),
+  readerInstallBtn: document.getElementById("readerInstallBtn"),
   bookmarkList: document.getElementById("bookmarkList"),
   noteInput: document.getElementById("pageNoteInput"),
   saveNoteBtn: document.getElementById("saveNoteBtn"),
@@ -242,6 +245,7 @@ const state = {
   focusMode: localStorage.getItem(LS_FOCUS_KEY) === "1",
   offlineQueue: [],
   syncingOfflineQueue: false,
+  deferredInstallPrompt: null,
 };
 
 // ════════════════════════════════════════
@@ -390,6 +394,55 @@ function setBookLoading(isVisible, message = "Chargement du livre en cours. Veui
   if (dom.bookLoadingMessage) dom.bookLoadingMessage.textContent = message || "Chargement du livre en cours…";
 }
 
+function isIOSDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+function isStandaloneMode() {
+  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
+}
+
+function updateInstallShortcutVisibility() {
+  const visible = !isStandaloneMode();
+  if (dom.libraryInstallBtn) dom.libraryInstallBtn.hidden = !visible;
+  if (dom.readerInstallBtn) dom.readerInstallBtn.hidden = !visible;
+}
+
+function showManualInstallHint() {
+  if (dom.installBannerText) {
+    dom.installBannerText.textContent = isIOSDevice()
+      ? 'Pour installer : appuie sur Partager puis "Sur l\'écran d\'accueil".'
+      : "Pour installer : utilise le menu du navigateur puis choisis Installer l'application ou Ajouter à l'écran d'accueil.";
+  }
+  if (dom.installBannerBtn) dom.installBannerBtn.hidden = !!isIOSDevice() || !state.deferredInstallPrompt;
+  if (dom.installBanner) dom.installBanner.hidden = false;
+}
+
+async function triggerInstallShortcut() {
+  if (isStandaloneMode()) {
+    showToast("L'application est déjà installée sur cet appareil");
+    return;
+  }
+  if (state.deferredInstallPrompt) {
+    const promptEvent = state.deferredInstallPrompt;
+    state.deferredInstallPrompt = null;
+    promptEvent.prompt();
+    try { await promptEvent.userChoice; } catch (_) {}
+    if (dom.installBanner) dom.installBanner.hidden = true;
+    localStorage.setItem(LS_INSTALL_KEY, "1");
+    updateInstallShortcutVisibility();
+    return;
+  }
+  showManualInstallHint();
+  showToast(isIOSDevice() ? "Instructions d'installation affichées" : "Utilise le menu du navigateur pour installer l'application");
+}
+
+function setAdminUnlockStatus(message = "", kind = "") {
+  if (!dom.adminUnlockStatus) return;
+  dom.adminUnlockStatus.textContent = message || "";
+  dom.adminUnlockStatus.className = `save-status admin-unlock-status${kind ? ` status-${kind}` : ""}`;
+}
+
 function canSeeAdminPanel() {
   const configAdminEmail = normalizeEmail(CONFIG.adminEmail || "");
   return !!state.isAdminCandidate && (!configAdminEmail || normalizeEmail(state.email) === configAdminEmail);
@@ -397,12 +450,19 @@ function canSeeAdminPanel() {
 
 function applyAdminVisibility() {
   const showPanel = canSeeAdminPanel();
-  dom.adminPanel.hidden = !showPanel;
+  if (dom.adminPanel) dom.adminPanel.hidden = !showPanel;
   const showUnlocked = showPanel && !!state.adminUnlocked;
-  dom.publishForm.hidden = !showUnlocked;
-  dom.githubTestRow.hidden = !showUnlocked;
-  dom.addUsersSection.hidden = !showUnlocked;
-  if (dom.studentCheckBtn) dom.studentCheckBtn.hidden = !showUnlocked;
+  if (dom.publishForm) dom.publishForm.hidden = !showUnlocked;
+  if (dom.githubTestRow) dom.githubTestRow.hidden = !showUnlocked;
+  if (dom.addUsersSection) dom.addUsersSection.hidden = !showUnlocked;
+  if (dom.studentCheckBtn) {
+    dom.studentCheckBtn.hidden = !showUnlocked;
+    dom.studentCheckBtn.disabled = !showUnlocked;
+  }
+  if (!showUnlocked) {
+    closeReadingCheckModal();
+    closeBookReviewModal();
+  }
 }
 
 function resetAdminState() {
@@ -428,7 +488,10 @@ function resetAdminState() {
   if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = "name";
   if (dom.bookReviewFilterSelect) dom.bookReviewFilterSelect.value = "all";
   if (dom.bookReviewShowExternalInput) dom.bookReviewShowExternalInput.checked = false;
-  dom.adminCodeInput.value = "";
+  if (dom.adminCodeInput) dom.adminCodeInput.value = "";
+  setAdminUnlockStatus("");
+  closeReadingCheckModal();
+  closeBookReviewModal();
   applyAdminVisibility();
   setPublishStatus("En attente");
 }
@@ -868,7 +931,7 @@ async function loadStudentReadingOverview(targetEmail) {
   state.loadingReadingCheckEmail = email;
   renderReadingCheckUserList();
   if (dom.readingCheckStatus) {
-    dom.readingCheckStatus.className = "save-status";
+    dom.readingCheckStatus.className = "save-status reading-check-status";
     dom.readingCheckStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement des données de lecture…</span>`;
   }
   try {
@@ -886,7 +949,7 @@ async function loadStudentReadingOverview(targetEmail) {
     state.readingCheckData = null;
     renderReadingCheckDetails();
     if (dom.readingCheckStatus) {
-      dom.readingCheckStatus.className = "save-status status-error";
+      dom.readingCheckStatus.className = "save-status reading-check-status status-error";
       dom.readingCheckStatus.textContent = error.message || "Erreur lors du chargement.";
     }
   } finally {
@@ -896,10 +959,17 @@ async function loadStudentReadingOverview(targetEmail) {
 }
 
 async function openReadingCheckModal() {
-  if (!state.adminUnlocked || !canSeeAdminPanel()) return;
+  if (!state.adminUnlocked || !canSeeAdminPanel()) {
+    showToast("Déverrouille d'abord le module administrateur");
+    return;
+  }
+  if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = false;
   state.readingCheckSortMode = dom.readingCheckSortSelect?.value || "name";
-  if (dom.readingCheckStatus) dom.readingCheckStatus.textContent = "";
+  if (dom.readingCheckStatus) {
+    dom.readingCheckStatus.className = "save-status reading-check-status";
+    dom.readingCheckStatus.textContent = "";
+  }
   renderReadingCheckDetails();
   await loadAssignableUsers(true);
   renderReadingCheckUserList();
@@ -908,6 +978,10 @@ async function openReadingCheckModal() {
 function closeReadingCheckModal() {
   if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = true;
+  if (dom.readingCheckStatus) {
+    dom.readingCheckStatus.textContent = "";
+    dom.readingCheckStatus.className = "save-status reading-check-status";
+  }
 }
 
 function renderBookReviewSummary() {
@@ -1079,7 +1153,7 @@ async function loadBookReadingOverview(bookId) {
   if (!targetBookId || !state.adminUnlocked || !canSeeAdminPanel()) return;
   state.loadingBookReviewId = targetBookId;
   if (dom.bookReviewStatus) {
-    dom.bookReviewStatus.className = "save-status";
+    dom.bookReviewStatus.className = "save-status reading-check-status";
     dom.bookReviewStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement du suivi du livre…</span>`;
   }
   renderAdminBooks();
@@ -1110,7 +1184,7 @@ async function loadBookReadingOverview(bookId) {
     renderBookReviewUserList();
     renderBookReviewDetails();
     if (dom.bookReviewStatus) {
-      dom.bookReviewStatus.className = "save-status status-error";
+      dom.bookReviewStatus.className = "save-status reading-check-status status-error";
       dom.bookReviewStatus.textContent = error.message || "Erreur lors du chargement.";
     }
   } finally {
@@ -1138,6 +1212,10 @@ async function openBookReviewModal(bookId) {
 function closeBookReviewModal() {
   if (!dom.bookReviewModal) return;
   dom.bookReviewModal.hidden = true;
+  if (dom.bookReviewStatus) {
+    dom.bookReviewStatus.textContent = "";
+    dom.bookReviewStatus.className = "save-status reading-check-status";
+  }
 }
 
 function normalizeRestoredDisplayPage(pageNumber) {
@@ -1431,8 +1509,6 @@ function saveSession() {
     localStorage.setItem(SESSION_KEY, JSON.stringify({
       email: state.email,
       isAdminCandidate: state.isAdminCandidate,
-      adminUnlocked: state.adminUnlocked,
-      adminCode: state.adminCode,
       userProfile: {
         firstName: state.userProfile?.firstName || "",
         lastName: state.userProfile?.lastName || "",
@@ -1455,8 +1531,8 @@ function restoreSession() {
     if (!data?.email) return false;
     state.email = data.email;
     state.isAdminCandidate = !!data.isAdminCandidate;
-    state.adminUnlocked = !!data.adminUnlocked;
-    state.adminCode = data.adminCode || "";
+    state.adminUnlocked = false;
+    state.adminCode = "";
     state.userProfile = {
       firstName: normalizePersonName(data.userProfile?.firstName || ""),
       lastName: normalizePersonName(data.userProfile?.lastName || ""),
@@ -2448,10 +2524,15 @@ async function unlockAdmin() {
     return;
   }
   const code = dom.adminCodeInput.value.trim();
-  if (!code) { showToast("Entre le code administrateur"); return; }
+  if (!code) {
+    setAdminUnlockStatus("Entre le code administrateur.", "error");
+    showToast("Entre le code administrateur");
+    return;
+  }
 
   dom.unlockAdminBtn.disabled = true;
   dom.unlockAdminBtn.textContent = "Vérification…";
+  setAdminUnlockStatus("Vérification du code administrateur…");
 
   try {
     const response = await jsonp("listBooks", { email: state.email, adminCode: code });
@@ -2459,12 +2540,15 @@ async function unlockAdmin() {
     state.adminUnlocked = true;
     state.adminCode = code;
     applyAdminVisibility();
-    setPublishStatus("Module administrateur déverrouillé", true);
-    saveSession();
+    setAdminUnlockStatus("Module administrateur déverrouillé.", "success");
     await refreshBooks();
     await loadAssignableUsers(true);
   } catch (error) {
     console.error(error);
+    state.adminUnlocked = false;
+    state.adminCode = "";
+    applyAdminVisibility();
+    setAdminUnlockStatus(error?.message || "Code administrateur invalide.", "error");
     showToast("Code administrateur invalide");
   } finally {
     dom.unlockAdminBtn.disabled = false;
@@ -3073,6 +3157,9 @@ async function revalidateSessionInBackground() {
     if (!response?.ok) return;
     if (normalizeEmail(response.email) !== expectedEmail) return;
     state.isAdminCandidate = !!response.isAdminCandidate;
+    state.adminUnlocked = false;
+    state.adminCode = "";
+    setAdminUnlockStatus("");
     state.userProfile = {
       firstName: normalizePersonName(response.profile?.firstName || state.userProfile?.firstName || ""),
       lastName: normalizePersonName(response.profile?.lastName || state.userProfile?.lastName || ""),
@@ -3116,6 +3203,9 @@ async function handleLogin(event) {
     state.email = email;
     state.authVerified = true;
     state.isAdminCandidate = !!response.isAdminCandidate;
+    state.adminUnlocked = false;
+    state.adminCode = "";
+    setAdminUnlockStatus("");
     state.userProfile = {
       firstName: normalizePersonName(response.profile?.firstName || ""),
       lastName: normalizePersonName(response.profile?.lastName || ""),
@@ -3290,49 +3380,42 @@ function attachSwipeEvents() {
 // PWA INSTALL BANNER
 // ════════════════════════════════════════
 function initInstallBanner() {
-  let deferredPrompt = null;
+  state.deferredInstallPrompt = null;
 
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
-    deferredPrompt = e;
-    if (!localStorage.getItem(LS_INSTALL_KEY)) {
-      if (dom.installBanner) dom.installBanner.hidden = false;
+    state.deferredInstallPrompt = e;
+    if (!localStorage.getItem(LS_INSTALL_KEY) && dom.installBanner) {
+      dom.installBanner.hidden = false;
+      if (dom.installBannerText) dom.installBannerText.textContent = "Installez l'application sur votre écran d'accueil";
+      if (dom.installBannerBtn) dom.installBannerBtn.hidden = false;
     }
+    updateInstallShortcutVisibility();
   });
 
   on(dom.installBannerBtn, "click", async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
+    if (state.deferredInstallPrompt) {
+      const promptEvent = state.deferredInstallPrompt;
+      state.deferredInstallPrompt = null;
+      promptEvent.prompt();
+      try { await promptEvent.userChoice; } catch (_) {}
     }
     if (dom.installBanner) dom.installBanner.hidden = true;
     localStorage.setItem(LS_INSTALL_KEY, "1");
+    updateInstallShortcutVisibility();
   });
 
   on(dom.installBannerDismiss, "click", () => {
     if (dom.installBanner) dom.installBanner.hidden = true;
-    localStorage.setItem(LS_INSTALL_KEY, "1");
+    localStorage.setItem(isIOSDevice() ? LS_IOS_INSTALL_KEY : LS_INSTALL_KEY, "1");
+    updateInstallShortcutVisibility();
   });
 
-  // iOS: pas de beforeinstallprompt, on affiche des instructions
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
-  const isStandalone = window.navigator.standalone === true;
-  if (isIOS && !isStandalone && !localStorage.getItem(LS_IOS_INSTALL_KEY)) {
-    if (dom.installBannerText) dom.installBannerText.textContent = 'Pour installer : appuyez sur le bouton Partager ↑ puis "Sur l\'écran d\'accueil"';
-    if (dom.installBannerBtn) dom.installBannerBtn.hidden = true;
-    if (dom.installBanner) dom.installBanner.hidden = false;
+  if (isIOSDevice() && !isStandaloneMode() && !localStorage.getItem(LS_IOS_INSTALL_KEY)) {
+    showManualInstallHint();
   }
 
-  if ((dom.installBannerBtn && dom.installBannerBtn.hidden === false) || !isIOS) {
-    // bouton standard visible ou Android — on le réaffiche si caché
-    if (dom.installBannerBtn) dom.installBannerBtn.hidden = false;
-  }
-
-  // Dismiss iOS
-  on(dom.installBannerDismiss, "click", () => {
-    if (isIOS) localStorage.setItem(LS_IOS_INSTALL_KEY, "1");
-  });
+  updateInstallShortcutVisibility();
 }
 
 // ════════════════════════════════════════
@@ -3362,6 +3445,8 @@ function attachEvents() {
   // Connexion
   bindSafeLoginEvents();
   on(dom.logoutBtn, "click", logoutToGate);
+  on(dom.libraryInstallBtn, "click", triggerInstallShortcut);
+  on(dom.readerInstallBtn, "click", triggerInstallShortcut);
   ["input", "blur"].forEach((eventName) => {
     on(dom.profileFirstNameInput, eventName, () => {
       dom.profileFirstNameInput.value = normalizePersonName(dom.profileFirstNameInput.value);
@@ -3713,11 +3798,9 @@ async function init() {
     try {
       state.email = normalizeEmail(state.email);
       state.authVerified = true;
-      if (!canSeeAdminPanel()) {
-        state.adminUnlocked = false;
-        state.adminCode = "";
-      }
-      if (state.adminUnlocked) setPublishStatus("Module administrateur déverrouillé", true);
+      state.adminUnlocked = false;
+      state.adminCode = "";
+      setAdminUnlockStatus("");
       await finishLoginFlow({ attemptRestore: true, fromRestore: true });
       void revalidateSessionInBackground();
       void syncOfflineQueue();

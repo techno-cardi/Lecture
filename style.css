@@ -1274,3 +1274,93 @@ body.focus-mode-active .reader-nav-bottom:hover,
 body.focus-mode-active .top-progress-bar:hover { opacity: 1; }
 .reading-check-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .reading-check-chip { display: inline-flex; flex-direction: column; gap: 2px; }
+
+
+.admin-lock-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+.admin-unlock-status {
+  min-height: 22px;
+  margin-top: 8px;
+}
+.reading-check-status {
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reading-check-modal-panel,
+.book-review-modal-panel {
+  align-self: center;
+  width: min(1320px, calc(100vw - 24px));
+  max-height: min(92vh, calc(100dvh - 24px));
+  overflow: hidden;
+}
+.reading-check-layout,
+.book-review-layout {
+  min-height: 0;
+  align-items: stretch;
+}
+.reading-check-layout {
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+}
+.reading-check-layout > *,
+.book-review-layout > * {
+  min-width: 0;
+  min-height: 0;
+}
+.reading-check-users-pane,
+.book-review-users-pane,
+.reading-check-details {
+  min-width: 0;
+}
+.reading-check-users-pane,
+.book-review-users-pane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.reading-check-user-list {
+  max-height: none;
+  min-height: 0;
+}
+.reading-check-details {
+  overflow: auto;
+}
+.reading-check-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.reading-check-book-stats {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.reading-check-book-sections {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.admin-head-actions {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.book-review-layout {
+  grid-template-columns: minmax(340px, 440px) minmax(0, 1fr);
+}
+.book-review-toggle {
+  padding: 0;
+}
+@media (max-width: 900px) {
+  .admin-lock-row {
+    grid-template-columns: 1fr;
+  }
+  .reading-check-modal-panel,
+  .book-review-modal-panel {
+    width: min(100vw - 12px, 1000px);
+    max-height: min(100dvh - 12px, 96vh);
+    padding: 18px 16px;
+  }
+  .reading-check-layout,
+  .book-review-layout {
+    grid-template-columns: 1fr;
+  }
+  .reading-check-user-list {
+    max-height: 220px;
+  }
+}

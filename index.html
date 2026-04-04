@@ -69,6 +69,7 @@
         </div>
         <div class="header-actions">
           <button id="refreshBooksBtn" class="secondary-btn" type="button">Actualiser</button>
+          <button id="libraryInstallBtn" class="secondary-btn" type="button" hidden>Installer l'app</button>
           <button id="logoutBtn" class="ghost-btn" type="button">Changer de courriel</button>
         </div>
       </header>
@@ -92,6 +93,7 @@
           <input id="adminCodeInput" type="password" autocomplete="off" placeholder="Code administrateur">
           <button id="unlockAdminBtn" class="secondary-btn" type="button">Déverrouiller</button>
         </div>
+        <div id="adminUnlockStatus" class="save-status admin-unlock-status" aria-live="polite"></div>
 
         <div id="githubTestRow" class="github-test-row" hidden>
           <button id="testGithubBtn" class="ghost-btn" type="button">Tester la connexion GitHub</button>
@@ -405,6 +407,7 @@
           <button id="lineSpacingBtn" class="secondary-btn" type="button">Interligne normal</button>
           <button id="widthToggleBtn" class="secondary-btn" type="button">Largeur standard</button>
           <button id="focusModeBtn" class="secondary-btn" type="button">Mode concentration</button>
+          <button id="readerInstallBtn" class="secondary-btn" type="button" hidden>Installer l'app</button>
         </div>
         <div class="bookmark-status-row">
           <span id="bookmarkStatus" class="save-status"></span>
