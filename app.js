@@ -639,6 +639,30 @@ function toggleMenu(force) {
   dom.menuToggle.setAttribute("aria-expanded", String(shouldOpen));
 }
 
+function cleanLoginQueryFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("email")) return;
+    url.search = "";
+    window.history.replaceState({}, "", url.toString());
+  } catch (_) {}
+}
+
+function bindSafeLoginEvents() {
+  const runLogin = (event) => {
+    if (event) event.preventDefault();
+    void handleLogin(event || { preventDefault() {} });
+  };
+  dom.loginForm?.addEventListener("submit", runLogin);
+  dom.loginBtn?.addEventListener("click", runLogin);
+  dom.emailInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      runLogin(e);
+    }
+  });
+}
+
 function pulseElement(node, className, duration = 520) {
   if (!node) return;
   node.classList.remove(className);
@@ -2393,7 +2417,7 @@ function blockEasyActions() {
 // ════════════════════════════════════════
 function attachEvents() {
   // Connexion
-  dom.loginForm.addEventListener("submit", handleLogin);
+  bindSafeLoginEvents();
   dom.logoutBtn.addEventListener("click", logoutToGate);
   ["input", "blur"].forEach((eventName) => {
     dom.profileFirstNameInput.addEventListener(eventName, () => {
@@ -2640,6 +2664,7 @@ function attachEvents() {
 // INIT
 // ════════════════════════════════════════
 async function init() {
+  cleanLoginQueryFromUrl();
   blockEasyActions();
   attachEvents();
   initInstallBanner();
@@ -2679,4 +2704,10 @@ async function init() {
   setSaveStatus("En attente");
 }
 
-init();
+init().catch((error) => {
+  console.error(error);
+  switchScreen("gate");
+  toggleMenu(false);
+  setGateBusy(false);
+  setGateMessage("Erreur de chargement de l'application. Actualise la page.", "error");
+});

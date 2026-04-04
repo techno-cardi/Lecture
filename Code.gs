@@ -55,6 +55,7 @@ function handleAction_(action, e) {
       case 'updateBook':          return handleUpdateBook_(e);
       case 'addUsers':            return handleAddUsers_(e);
       case 'saveUserProfile':     return handleSaveUserProfile_(e);
+      case 'listAssignableUsers': return handleListAssignableUsers_(e);
       case 'ping':                return { ok: true, message: 'Service actif.' };
       default:                    return { ok: false, message: 'Action inconnue.' };
     }
@@ -94,6 +95,7 @@ function handleAuth_(e) {
   return {
     ok: true,
     email: email,
+    isAuthorized: true,
     isAdminCandidate: email === getAdminEmail_(),
     profileComplete: !!(firstName && lastName),
     profile: {
@@ -111,7 +113,11 @@ function handleListBooks_(e) {
   const email = normalizeEmail_(readParam_(e, 'email'));
   if (!isAuthorizedReader_(email)) return { ok: false, message: 'Courriel non autorisé.' };
   const includeHidden = isAdminAuthorized_(email, readParam_(e, 'adminCode'));
-  return { ok: true, books: readBooks_(includeHidden) };
+  const isAdminUser = email === getAdminEmail_();
+  const books = readBooks_(includeHidden).filter(function(book) {
+    return isBookAvailableToUser_(book, email, isAdminUser);
+  });
+  return { ok: true, books: books };
 }
 
 function handleToggleBookPublished_(e) {
@@ -163,29 +169,43 @@ function handleUpdateBook_(e) {
   const author = sanitizeText_(readParam_(e, 'author'), 300);
   const description = sanitizeText_(readParam_(e, 'description'), 500);
   const hiddenPageRanges = normalizePageRanges_(readParam_(e, 'hiddenPageRanges'));
+  const restrictedAccess = toBoolean_(readParam_(e, 'restrictedAccess'));
+  const assignedEmails = normalizeAssignedEmails_(readParam_(e, 'assignedEmails'));
 
   if (!isAdminAuthorized_(email, adminCode)) return { ok: false, message: 'Accès administrateur refusé.' };
   if (!bookId) return { ok: false, message: 'Livre introuvable.' };
   if (!title) return { ok: false, message: 'Le titre est requis.' };
+  if (restrictedAccess && !assignedEmails.length) return { ok: false, message: 'Choisis au moins un utilisateur.' };
 
   return withLock_(function() {
     const sheet = getSheet_(SETTINGS.sheetNames.books);
     const row = findRowByColumns_(sheet, 2, [1], [bookId]);
     if (!row) return { ok: false, message: 'Livre introuvable.' };
 
-    ensureBooksExtraColumns_(sheet);
-    sheet.getRange(row, 2).setValue(title);
-    sheet.getRange(row, 3).setValue(author || '');
-    ensureBooksExtraColumns_(sheet);
-    sheet.getRange(row, 10).setValue(description || '');
-    sheet.getRange(row, 11).setValue(new Date());
-    sheet.getRange(row, 12).setValue(email);
-    sheet.getRange(row, 14).setValue(hiddenPageRanges || '');
+    const existing = readBookRow_(sheet, row);
+    upsertBookRow_({
+      bookId: existing.bookId,
+      title: title,
+      author: author || '',
+      published: existing.published,
+      pdfPath: existing.pdfPath,
+      jsonPath: existing.jsonPath,
+      coverPath: existing.coverPath,
+      totalPages: existing.totalPages,
+      sourceFileName: existing.sourceFileName,
+      description: description || '',
+      lastUpdatedBy: email,
+      pdfAllowed: existing.pdfAllowed,
+      hiddenPageRanges: hiddenPageRanges || '',
+      restrictedAccess: restrictedAccess,
+      assignedEmails: assignedEmails
+    });
 
+    const refreshedRow = findRowByColumns_(sheet, 2, [1], [bookId]);
     return {
       ok: true,
       message: 'Livre modifié.',
-      book: readBookRow_(sheet, row)
+      book: readBookRow_(sheet, refreshedRow)
     };
   });
 }
@@ -250,6 +270,14 @@ function handleSaveUserProfile_(e) {
       profile: profile
     };
   });
+}
+
+
+function handleListAssignableUsers_(e) {
+  const email = normalizeEmail_(readParam_(e, 'email'));
+  const adminCode = readParam_(e, 'adminCode');
+  if (!isAdminAuthorized_(email, adminCode)) return { ok: false, message: 'Accès administrateur refusé.' };
+  return { ok: true, users: buildAssignableUsers_() };
 }
 
 // ════════════════════════════════════════
@@ -339,10 +367,11 @@ function handleAddBookmark_(e) {
     const sheet = getSheet_(SETTINGS.sheetNames.bookmarks);
     ensureBookmarksExtraColumns_(sheet);
     const row = findRowByColumns_(sheet, 2, [1, 2, 3], [email, bookId, page]);
+    var createdAt = new Date();
     if (!row) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, 1, 5).setValues([[email, bookId, page, new Date(), '']]);
+      sheet.getRange(sheet.getLastRow() + 1, 1, 1, 5).setValues([[email, bookId, page, createdAt, '']]);
     }
-    return { ok: true, message: 'Signet enregistré.' };
+    return { ok: true, message: 'Signet enregistré.', bookmark: { email: email, bookId: bookId, page: page, createdAt: createdAt, label: '' } };
   });
 }
 
@@ -356,7 +385,7 @@ function handleRemoveBookmark_(e) {
     const sheet = getSheet_(SETTINGS.sheetNames.bookmarks);
     ensureBookmarksExtraColumns_(sheet);
     const row = findRowByColumns_(sheet, 2, [1, 2, 3], [email, bookId, page]);
-    if (row) sheet.deleteRow(row);
+    if (row) sheet.getRange(row, 1, 1, 5).clearContent();
     return { ok: true, message: 'Signet supprimé.' };
   });
 }
@@ -510,6 +539,8 @@ function handlePublishBook_(e) {
   const sourceFileName = sanitizeText_(readParam_(e, 'sourceFileName'));
   const totalPages = clampNumber_(readParam_(e, 'totalPages'), 0, 100000, 0);
   const publishNow = toBoolean_(readParam_(e, 'publishNow'));
+  const restrictedAccess = toBoolean_(readParam_(e, 'restrictedAccess'));
+  const assignedEmails = normalizeAssignedEmails_(readParam_(e, 'assignedEmails'));
   const pdfBase64 = readParam_(e, 'pdfBase64');
   const jsonBase64 = readParam_(e, 'jsonBase64');
   const coverBase64 = readParam_(e, 'coverBase64');
@@ -520,6 +551,9 @@ function handlePublishBook_(e) {
   }
   if (!pdfBase64 || !jsonBase64) {
     return { ok: false, message: 'Données PDF ou JSON manquantes. Le fichier est peut-être trop volumineux ou le format de la requête est incorrect.' };
+  }
+  if (restrictedAccess && !assignedEmails.length) {
+    return { ok: false, message: 'Choisis au moins un utilisateur pour une attribution restreinte.' };
   }
 
   const github = getGithubSettings_(e);
@@ -545,7 +579,9 @@ function handlePublishBook_(e) {
     description: '',
     lastUpdatedBy: email,
     pdfAllowed: false,
-    hiddenPageRanges: '' 
+    hiddenPageRanges: '',
+    restrictedAccess: restrictedAccess,
+    assignedEmails: assignedEmails
   });
 
   return {
@@ -617,23 +653,9 @@ function githubPutFile_(github, path, contentBase64, message) {
 // ════════════════════════════════════════
 function readBookRow_(sheet, rowNumber) {
   ensureBooksExtraColumns_(sheet);
-  const values = sheet.getRange(rowNumber, 1, 1, 14).getValues()[0];
-  return {
-    bookId:           String(values[0] || ''),
-    title:            String(values[1] || ''),
-    author:           String(values[2] || ''),
-    published:        toBoolean_(values[3]),
-    pdfPath:          String(values[4] || ''),
-    jsonPath:         String(values[5] || ''),
-    coverPath:        String(values[6] || ''),
-    totalPages:       Number(values[7]) || 0,
-    sourceFileName:   String(values[8] || ''),
-    description:      String(values[9] || ''),
-    lastPublishedAt:  values[10] ? Utilities.formatDate(new Date(values[10]), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : '',
-    lastUpdatedBy:    String(values[11] || ''),
-    pdfAllowed:       toBoolean_(values[12] || false),
-    hiddenPageRanges: String(values[13] || '')
-  };
+  const width = Math.max(16, sheet.getLastColumn());
+  const values = sheet.getRange(rowNumber, 1, 1, width).getValues()[0];
+  return normalizeBookRecordFromRow_(values);
 }
 
 function readBooks_(includeHidden) {
@@ -641,26 +663,10 @@ function readBooks_(includeHidden) {
   ensureBooksExtraColumns_(sheet);
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const rows = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
+  const width = Math.max(16, sheet.getLastColumn());
+  const rows = sheet.getRange(2, 1, lastRow - 1, width).getValues();
   return rows
-    .map(function(row) {
-      return {
-        bookId:           String(row[0] || ''),
-        title:            String(row[1] || ''),
-        author:           String(row[2] || ''),
-        published:        toBoolean_(row[3]),
-        pdfPath:          String(row[4] || ''),
-        jsonPath:         String(row[5] || ''),
-        coverPath:        String(row[6] || ''),
-        totalPages:       Number(row[7]) || 0,
-        sourceFileName:   String(row[8] || ''),
-        description:      String(row[9] || ''),
-        lastPublishedAt:  row[10] ? Utilities.formatDate(new Date(row[10]), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss') : '',
-        lastUpdatedBy:    String(row[11] || ''),
-        pdfAllowed:       toBoolean_(row[12] || false),
-        hiddenPageRanges: String(row[13] || '')
-      };
-    })
+    .map(function(row) { return normalizeBookRecordFromRow_(row); })
     .filter(function(book) {
       return book.bookId && book.title && (includeHidden || book.published);
     })
@@ -671,10 +677,15 @@ function upsertBookRow_(book) {
   const sheet = getSheet_(SETTINGS.sheetNames.books);
   ensureBooksExtraColumns_(sheet);
   const row = findRowByColumns_(sheet, 2, [1], [book.bookId]);
-  const existingCoverPath = row ? String(sheet.getRange(row, 7).getValue() || '') : '';
-  const existingDescription = row ? String(sheet.getRange(row, 10).getValue() || '') : '';
-  const existingPdfAllowed = row ? toBoolean_(sheet.getRange(row, 13).getValue()) : false;
-  const existingHiddenPageRanges = row ? String(sheet.getRange(row, 14).getValue() || '') : '';
+  const existing = row ? readBookRow_(sheet, row) : {
+    coverPath: '',
+    description: '',
+    pdfAllowed: false,
+    hiddenPageRanges: '',
+    restrictedAccess: false,
+    assignedEmails: []
+  };
+  const assignedEmails = book.assignedEmails !== undefined ? normalizeAssignedEmails_(book.assignedEmails) : normalizeAssignedEmails_(existing.assignedEmails);
   const values = [[
     book.bookId,
     book.title,
@@ -682,20 +693,22 @@ function upsertBookRow_(book) {
     !!book.published,
     book.pdfPath,
     book.jsonPath,
-    book.coverPath || existingCoverPath,
+    book.coverPath || existing.coverPath || '',
     Number(book.totalPages) || 0,
     book.sourceFileName || '',
-    book.description !== undefined ? String(book.description || '') : existingDescription,
+    book.description !== undefined ? String(book.description || '') : String(existing.description || ''),
     new Date(),
     book.lastUpdatedBy || '',
-    book.pdfAllowed !== undefined ? !!book.pdfAllowed : existingPdfAllowed,
-    book.hiddenPageRanges !== undefined ? normalizePageRanges_(book.hiddenPageRanges) : existingHiddenPageRanges
+    book.pdfAllowed !== undefined ? !!book.pdfAllowed : !!existing.pdfAllowed,
+    book.hiddenPageRanges !== undefined ? normalizePageRanges_(book.hiddenPageRanges) : String(existing.hiddenPageRanges || ''),
+    book.restrictedAccess !== undefined ? !!book.restrictedAccess : !!existing.restrictedAccess,
+    serializeAssignedEmails_(assignedEmails)
   ]];
 
   if (row) {
-    sheet.getRange(row, 1, 1, 14).setValues(values);
+    sheet.getRange(row, 1, 1, 16).setValues(values);
   } else {
-    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 14).setValues(values);
+    sheet.getRange(sheet.getLastRow() + 1, 1, 1, 16).setValues(values);
   }
 }
 
@@ -721,7 +734,7 @@ function ensureSheets_() {
     progressSheet.setFrozenRows(1);
   }
   if (booksSheet.getLastRow() === 0) {
-    booksSheet.getRange(1, 1, 1, 14).setValues([['bookId', 'title', 'author', 'published', 'pdfPath', 'jsonPath', 'coverPath', 'totalPages', 'sourceFileName', 'description', 'lastPublishedAt', 'lastUpdatedBy', 'pdfAllowed', 'hiddenPageRanges']]);
+    booksSheet.getRange(1, 1, 1, 16).setValues([['bookId', 'title', 'author', 'published', 'pdfPath', 'jsonPath', 'coverPath', 'totalPages', 'sourceFileName', 'description', 'lastPublishedAt', 'lastUpdatedBy', 'pdfAllowed', 'hiddenPageRanges', 'restrictedAccess', 'assignedEmails']]);
     booksSheet.setFrozenRows(1);
   } else {
     ensureBooksExtraColumns_(booksSheet);
@@ -780,24 +793,13 @@ function configureSecrets() {
 // ════════════════════════════════════════
 function ensureBooksExtraColumns_(sheet) {
   var targetSheet = sheet || getSheet_(SETTINGS.sheetNames.books);
+  var expected = ['bookId', 'title', 'author', 'published', 'pdfPath', 'jsonPath', 'coverPath', 'totalPages', 'sourceFileName', 'description', 'lastPublishedAt', 'lastUpdatedBy', 'pdfAllowed', 'hiddenPageRanges', 'restrictedAccess', 'assignedEmails'];
   var currentCols = Math.max(targetSheet.getLastColumn(), 1);
-  if (currentCols < 14) {
-    targetSheet.insertColumnsAfter(currentCols, 14 - currentCols);
+  if (currentCols < expected.length) {
+    targetSheet.insertColumnsAfter(currentCols, expected.length - currentCols);
   }
-
-  var headers = targetSheet.getRange(1, 1, 1, 14).getValues()[0];
-  var expected = ['bookId', 'title', 'author', 'published', 'pdfPath', 'jsonPath', 'coverPath', 'totalPages', 'sourceFileName', 'description', 'lastPublishedAt', 'lastUpdatedBy', 'pdfAllowed', 'hiddenPageRanges'];
-
-  if (String(headers[9] || '') === 'lastPublishedAt') {
-    targetSheet.insertColumnBefore(10);
-    headers = targetSheet.getRange(1, 1, 1, 14).getValues()[0];
-  }
-
-  for (var i = 0; i < expected.length; i++) {
-    if (String(headers[i] || '') !== expected[i]) {
-      targetSheet.getRange(1, i + 1).setValue(expected[i]);
-    }
-  }
+  targetSheet.getRange(1, 1, 1, expected.length).setValues([expected]);
+  targetSheet.setFrozenRows(1);
 }
 
 function ensureBookmarksExtraColumns_(sheet) {
@@ -848,6 +850,176 @@ function upsertUserProfile_(email, firstName, lastName) {
     sheet.getRange(sheet.getLastRow() + 1, 1, 1, 5).setValues(values);
   }
   return { email: userEmail, firstName: cleanFirstName, lastName: cleanLastName };
+}
+
+
+function normalizeAssignedEmails_(raw) {
+  if (Array.isArray(raw)) {
+    return raw
+      .map(function(item) { return normalizeEmail_(item); })
+      .filter(function(item, index, array) { return item && isValidEmail_(item) && array.indexOf(item) === index; });
+  }
+  return parseEmailList_(raw).valid;
+}
+
+function serializeAssignedEmails_(raw) {
+  return normalizeAssignedEmails_(raw).join(', ');
+}
+
+function isLikelyDateValue_(value) {
+  if (value instanceof Date) return !isNaN(value.getTime());
+  var text = String(value || '').trim();
+  if (!text) return false;
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return true;
+  if (/^[A-Z][a-z]{2}\s[A-Z][a-z]{2}\s\d{2}\s\d{4}/.test(text)) return true;
+  var parsed = new Date(text);
+  return !isNaN(parsed.getTime());
+}
+
+function formatStoredDate_(value) {
+  if (!value) return '';
+  var date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return String(value || '');
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+function isLikelyBooleanValue_(value) {
+  if (typeof value === 'boolean') return true;
+  var normalized = String(value || '').trim().toLowerCase();
+  return ['true', 'false', '1', '0', 'yes', 'no', 'oui', 'non', 'vrai', 'faux'].indexOf(normalized) !== -1;
+}
+
+function isLikelyPageRanges_(value) {
+  var text = String(value || '').trim();
+  if (!text) return false;
+  return /^\d+(\s*-\s*\d+)?(\s*,\s*\d+(\s*-\s*\d+)?)*$/.test(text);
+}
+
+function isLikelyFreeTextDescription_(value) {
+  var text = String(value || '').trim();
+  if (!text) return false;
+  if (isLikelyDateValue_(text)) return false;
+  if (isLikelyBooleanValue_(text)) return false;
+  if (isLikelyPageRanges_(text)) return false;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) return false;
+  return true;
+}
+
+function isLikelyPersonOrEmail_(value) {
+  var text = String(value || '').trim();
+  if (!text) return false;
+  if (isLikelyDateValue_(text)) return false;
+  if (isLikelyBooleanValue_(text)) return false;
+  return true;
+}
+
+function normalizeBookRecordFromRow_(row) {
+  var values = Array.isArray(row) ? row : [];
+  function at(index) {
+    return index < values.length ? values[index] : '';
+  }
+
+  var description = '';
+  var lastPublishedAt = '';
+  var lastUpdatedBy = '';
+  var pdfAllowed = false;
+  var hiddenPageRanges = '';
+  var restrictedAccess = false;
+  var assignedEmails = [];
+
+  var c9 = at(9);
+  var c10 = at(10);
+  var c11 = at(11);
+  var c12 = at(12);
+  var c13 = at(13);
+  var c14 = at(14);
+  var c15 = at(15);
+
+  if (isLikelyFreeTextDescription_(c9)) description = String(c9 || '').trim();
+  if (isLikelyDateValue_(c9)) lastPublishedAt = formatStoredDate_(c9);
+  if (!lastPublishedAt && isLikelyDateValue_(c10)) lastPublishedAt = formatStoredDate_(c10);
+
+  if (isLikelyPersonOrEmail_(c11) && !isLikelyBooleanValue_(c11)) {
+    lastUpdatedBy = String(c11 || '').trim();
+  }
+  if (!lastUpdatedBy && isLikelyPersonOrEmail_(c10) && !isLikelyDateValue_(c10) && !isLikelyBooleanValue_(c10)) {
+    lastUpdatedBy = String(c10 || '').trim();
+  }
+
+  if (isLikelyBooleanValue_(c12)) pdfAllowed = toBoolean_(c12);
+  else if (isLikelyBooleanValue_(c11)) pdfAllowed = toBoolean_(c11);
+
+  if (isLikelyPageRanges_(c13)) hiddenPageRanges = normalizePageRanges_(c13);
+  if (isLikelyBooleanValue_(c14)) restrictedAccess = toBoolean_(c14);
+  assignedEmails = normalizeAssignedEmails_(c15);
+
+  return {
+    bookId: String(at(0) || ''),
+    title: String(at(1) || ''),
+    author: String(at(2) || ''),
+    published: toBoolean_(at(3)),
+    pdfPath: String(at(4) || ''),
+    jsonPath: String(at(5) || ''),
+    coverPath: String(at(6) || ''),
+    totalPages: Number(at(7)) || 0,
+    sourceFileName: String(at(8) || ''),
+    description: description,
+    lastPublishedAt: lastPublishedAt,
+    lastUpdatedBy: lastUpdatedBy,
+    pdfAllowed: pdfAllowed,
+    hiddenPageRanges: hiddenPageRanges,
+    restrictedAccess: restrictedAccess,
+    assignedEmails: assignedEmails
+  };
+}
+
+function isBookAvailableToUser_(book, email, isAdminUser) {
+  if (isAdminUser) return true;
+  if (!book || !book.restrictedAccess) return true;
+  var allowed = normalizeAssignedEmails_(book.assignedEmails);
+  return allowed.indexOf(normalizeEmail_(email)) !== -1;
+}
+
+function buildAssignableUsers_() {
+  var whitelistSheet = getSheet_(SETTINGS.sheetNames.whitelist);
+  var usersSheet = getSheet_(SETTINGS.sheetNames.users);
+  var profiles = {};
+  var whitelist = [];
+
+  if (usersSheet.getLastRow() >= 2) {
+    var userRows = usersSheet.getRange(2, 1, usersSheet.getLastRow() - 1, 5).getValues();
+    userRows.forEach(function(row) {
+      var email = normalizeEmail_(row[0]);
+      if (!email) return;
+      profiles[email] = {
+        firstName: sanitizePersonName_(row[1] || ''),
+        lastName: sanitizePersonName_(row[2] || '')
+      };
+    });
+  }
+
+  if (whitelistSheet.getLastRow() >= 2) {
+    var rows = whitelistSheet.getRange(2, 1, whitelistSheet.getLastRow() - 1, 4).getValues();
+    rows.forEach(function(row) {
+      var email = normalizeEmail_(row[0]);
+      if (!email || !toBoolean_(row[1])) return;
+      var profile = profiles[email] || { firstName: '', lastName: '' };
+      var fullName = [profile.firstName, profile.lastName].filter(Boolean).join(' ');
+      whitelist.push({
+        email: email,
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        fullName: fullName
+      });
+    });
+  }
+
+  whitelist.sort(function(a, b) {
+    var left = (a.fullName || a.email).toLowerCase();
+    var right = (b.fullName || b.email).toLowerCase();
+    return left.localeCompare(right);
+  });
+  return whitelist;
 }
 
 function sanitizePersonName_(value) {

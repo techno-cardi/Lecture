@@ -27,7 +27,7 @@
       <h1 class="app-title">Lecture du document</h1>
       <p class="app-subtitle">Entre une adresse courriel autorisée pour accéder à la bibliothèque.</p>
 
-      <form id="loginForm" class="login-form" autocomplete="on">
+      <form id="loginForm" class="login-form" autocomplete="on" method="post" action=".">
         <label for="emailInput" class="sr-only">Courriel scolaire</label>
         <input
           id="emailInput"
@@ -45,7 +45,7 @@
           <input id="rememberMeInput" type="checkbox" autocomplete="off">
           <span>Se souvenir de moi</span>
         </label>
-        <button id="loginBtn" type="submit">Accéder</button>
+        <button id="loginBtn" type="button">Accéder</button>
       </form>
 
       <div id="gateBusy" class="gate-busy" hidden>
