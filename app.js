@@ -250,6 +250,11 @@ const state = {
   deferredInstallPrompt: null,
 };
 
+const runtimeCache = {
+  textDocs: new Map(),
+  bookLists: new Map(),
+};
+
 // ════════════════════════════════════════
 // UTILITAIRES
 // ════════════════════════════════════════
@@ -440,7 +445,7 @@ async function triggerInstallShortcut() {
     return;
   }
   showManualInstallHint();
-  showToast(isIOSDevice() ? "Instructions d'installation affichées" : "Utilise le menu du navigateur pour installer l'application");
+  showToast(isIOSDevice() ? "Instructions d'installation affichées" : "Instructions d'installation affichées");
 }
 
 function setAdminUnlockStatus(message = "", kind = "") {
@@ -979,8 +984,11 @@ async function openReadingCheckModal() {
   }
   if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = false;
-  state.readingCheckSortMode = dom.readingCheckSortSelect?.value || "name";
-  state.readingCheckShowExternal = !!dom.readingCheckShowExternalInput?.checked;
+  if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
+  if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
+  state.readingCheckSortMode = "name";
+  state.readingCheckShowExternal = false;
   if (dom.readingCheckStatus) {
     dom.readingCheckStatus.className = "save-status reading-check-status";
     dom.readingCheckStatus.textContent = "";
@@ -1975,19 +1983,29 @@ function applyReadingComfortClasses() {
 }
 
 function cycleLineSpacing() {
+  if (state.mode === 'pdf') {
+    showToast("L'interligne s'applique au mode texte uniquement");
+    return;
+  }
   const order = ['normal', 'relaxed', 'loose'];
   const currentIndex = Math.max(0, order.indexOf(state.lineSpacingMode));
   state.lineSpacingMode = order[(currentIndex + 1) % order.length];
   localStorage.setItem(LS_LINE_SPACING_KEY, state.lineSpacingMode);
   applyReadingComfortClasses();
   updateUiLabels();
+  showToast(state.lineSpacingMode === 'normal' ? 'Interligne normal' : (state.lineSpacingMode === 'relaxed' ? 'Interligne moyen' : 'Interligne ample'));
 }
 
 function toggleNarrowLayout() {
+  if (state.mode === 'pdf') {
+    showToast("La largeur s'applique au mode texte uniquement");
+    return;
+  }
   state.narrowLayout = !state.narrowLayout;
   localStorage.setItem(LS_NARROW_KEY, state.narrowLayout ? '1' : '0');
   applyReadingComfortClasses();
   updateUiLabels();
+  showToast(state.narrowLayout ? 'Largeur compacte activée' : 'Largeur standard activée');
 }
 
 function toggleFocusMode() {
@@ -1995,6 +2013,7 @@ function toggleFocusMode() {
   localStorage.setItem(LS_FOCUS_KEY, state.focusMode ? '1' : '0');
   applyReadingComfortClasses();
   updateUiLabels();
+  showToast(state.focusMode ? 'Mode concentration activé' : 'Mode concentration désactivé');
 }
 
 function getBookStatusLabel(book) {
@@ -2193,10 +2212,14 @@ function renderAdminBooks() {
 // LECTEUR — CHARGEMENT
 // ════════════════════════════════════════
 async function loadTextJson(book) {
-  if (!book.jsonPath) return null;
-  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "no-store" });
+  if (!book?.jsonPath) return null;
+  const cacheKey = String(book.bookId || book.jsonPath || '');
+  if (runtimeCache.textDocs.has(cacheKey)) return runtimeCache.textDocs.get(cacheKey);
+  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "force-cache" });
   if (!response.ok) return null;
-  return response.json();
+  const data = await response.json();
+  runtimeCache.textDocs.set(cacheKey, data);
+  return data;
 }
 
 async function loadPdfDocument(book) {
@@ -2257,6 +2280,8 @@ function updateUiLabels() {
   dom.modeToggleBtn.hidden = !pdfAllowed;
   dom.fitBtn.hidden = !pdfAllowed || state.mode === "text";
   dom.fontSizeBtn.hidden = state.mode === "pdf";
+  if (dom.lineSpacingBtn) dom.lineSpacingBtn.hidden = state.mode === "pdf";
+  if (dom.widthToggleBtn) dom.widthToggleBtn.hidden = state.mode === "pdf";
 
   renderBookmarks();
   renderNotes();
@@ -3535,6 +3560,9 @@ function attachEvents() {
 
   // Ajustements
   on(dom.fitBtn, "click", fitCurrentView);
+  on(dom.lineSpacingBtn, "click", cycleLineSpacing);
+  on(dom.widthToggleBtn, "click", toggleNarrowLayout);
+  on(dom.focusModeBtn, "click", toggleFocusMode);
   on(dom.modeToggleBtn, "click", async () => {
     if (!state.currentBook?.pdfAllowed) { showToast("Le mode PDF n'est pas autorisé pour ce livre."); return; }
     if (state.mode === "text") {

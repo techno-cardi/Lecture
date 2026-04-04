@@ -1382,3 +1382,100 @@ body.focus-mode-active .top-progress-bar:hover { opacity: 1; }
     max-height: 240px;
   }
 }
+
+/* v22 targeted fixes */
+.reading-check-modal-panel,
+.book-review-modal-panel {
+  width: min(1360px, calc(100vw - 24px));
+  max-height: min(92vh, calc(100dvh - 24px));
+}
+.reading-check-toolbar,
+.book-review-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 12px;
+  align-items: end;
+}
+.reading-check-toggle,
+.book-review-toggle {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+  padding: 0;
+}
+.reading-check-toggle span,
+.book-review-toggle span {
+  white-space: normal;
+}
+.reading-check-layout {
+  grid-template-columns: minmax(300px, 360px) minmax(520px, 1fr);
+  gap: 18px;
+}
+.book-review-layout {
+  grid-template-columns: minmax(300px, 380px) minmax(560px, 1fr);
+  gap: 18px;
+}
+.reading-check-users-pane,
+.book-review-users-pane,
+.reading-check-details {
+  min-width: 0;
+}
+.reading-check-details {
+  min-height: 420px;
+}
+.reading-check-user-list {
+  max-height: min(60vh, 640px);
+}
+.reading-check-user-btn,
+.book-review-user-btn {
+  overflow: hidden;
+}
+.reading-check-user-name,
+.reading-check-user-email {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1220px) {
+  .reading-check-layout,
+  .book-review-layout {
+    grid-template-columns: 1fr;
+  }
+  .reading-check-details {
+    min-height: 280px;
+  }
+}
+@media (max-width: 760px) {
+  .reading-check-modal-panel,
+  .book-review-modal-panel {
+    width: calc(100vw - 12px);
+    max-height: calc(100dvh - 12px);
+    padding: 16px 14px;
+  }
+  .reading-check-toolbar,
+  .book-review-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .reading-check-user-list {
+    max-height: min(38vh, 320px);
+  }
+}
+
+body.focus-mode-active .control-panel,
+body.focus-mode-active .reader-nav,
+body.focus-mode-active .top-progress-bar,
+body.focus-mode-active .menu-toggle {
+  opacity: 0.08;
+  transition: opacity 0.18s ease;
+}
+body.focus-mode-active .control-panel:hover,
+body.focus-mode-active .reader-nav:hover,
+body.focus-mode-active .top-progress-bar:hover,
+body.focus-mode-active .menu-toggle:hover,
+body.focus-mode-active .menu-toggle:focus-visible {
+  opacity: 1;
+}
+body.focus-mode-active .text-page {
+  box-shadow: none;
+}
