@@ -10,7 +10,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <title>Lecteur scolaire</title>
   <link rel="manifest" href="./manifest.json">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=20260404v16">
 </head>
 <body>
   <div class="app-shell">
@@ -72,8 +72,7 @@
       </header>
 
       <section id="bookList" class="book-list" aria-live="polite"></section>
-      <footer class="library-footer">Créé par Kevin Tremblay, technopédagogue Cardinal-Roy</footer>
-
+      
       <!-- ═══ PANNEAU ADMINISTRATEUR ═══ -->
       <section id="adminPanel" class="admin-panel panel" hidden>
         <div class="admin-head">
@@ -113,15 +112,24 @@
             </div>
             <div>
               <label for="bookPdfInput">Fichier PDF</label>
-              <input id="bookPdfInput" type="file" accept="application/pdf" required>
+              <input id="bookPdfInput" type="file" accept="application/pdf,.pdf" required>
             </div>
           </div>
 
           <div class="publish-grid">
             <div>
+              <label for="publishHiddenPagesInput">Pages à masquer dès la publication</label>
+              <input id="publishHiddenPagesInput" type="text" maxlength="120" placeholder="Ex. 1-7, 12-13">
+              <div id="publishHiddenPagesSummary" class="hidden-pages-summary"></div>
+            </div>
+            <div>
               <label for="bookCoverInput">Image de couverture</label>
               <input id="bookCoverInput" type="file" accept="image/png,image/jpeg,image/webp,image/jpg">
             </div>
+          </div>
+
+          <div class="publish-grid">
+            <div></div>
             <div>
               <label for="publishNowInput" class="checkbox-label">
                 <input id="publishNowInput" type="checkbox" checked>
@@ -386,7 +394,7 @@
   </div>
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
-  <script src="./config.js"></script>
-  <script type="module" src="./app.js"></script>
+  <script src="./config.js?v=20260404v16"></script>
+  <script type="module" src="./app.js?v=20260404v16"></script>
 </body>
 </html>

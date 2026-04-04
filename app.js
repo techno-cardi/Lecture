@@ -52,6 +52,8 @@ const dom = {
   bookAuthorInput: document.getElementById("bookAuthorInput"),
   bookPdfInput: document.getElementById("bookPdfInput"),
   bookCoverInput: document.getElementById("bookCoverInput"),
+  publishHiddenPagesInput: document.getElementById("publishHiddenPagesInput"),
+  publishHiddenPagesSummary: document.getElementById("publishHiddenPagesSummary"),
   publishNowInput: document.getElementById("publishNowInput"),
   publishRestrictedAccessInput: document.getElementById("publishRestrictedAccessInput"),
   publishAssignWrap: document.getElementById("publishAssignWrap"),
@@ -291,7 +293,7 @@ function setBookmarkStatus(message, kind = "", busy = false) {
     : escapeHtml(message);
 }
 
-function setBookLoading(isVisible, message = "Chargement du livre en cours…") {
+function setBookLoading(isVisible, message = "Chargement du livre en cours. Veuillez patienter.") {
   if (!dom.bookLoadingOverlay) return;
   dom.bookLoadingOverlay.hidden = !isVisible;
   if (dom.bookLoadingMessage) dom.bookLoadingMessage.textContent = message || "Chargement du livre en cours…";
@@ -460,13 +462,13 @@ function compressPageList(pageList = []) {
   return ranges.join(", ");
 }
 
-function renderHiddenPagesSummary(totalPages, hiddenPageRanges) {
-  if (!dom.editHiddenPagesSummary) return;
+function renderHiddenPagesSummary(totalPages, hiddenPageRanges, target = dom.editHiddenPagesSummary) {
+  if (!target) return;
   const total = Math.max(0, Number(totalPages) || 0);
   const hiddenPages = expandPageRanges(hiddenPageRanges, total);
   const visibleCount = Math.max(0, total - hiddenPages.length);
   if (!hiddenPages.length) {
-    dom.editHiddenPagesSummary.innerHTML = total
+    target.innerHTML = total
       ? `<div class="hidden-pages-stats">Pages affichées aux élèves: <strong>${visibleCount}</strong> / ${total}</div><div class="hidden-pages-empty">Aucune page masquée actuellement.</div>`
       : `<div class="hidden-pages-empty">Aucune page masquée actuellement.</div>`;
     return;
@@ -474,7 +476,7 @@ function renderHiddenPagesSummary(totalPages, hiddenPageRanges) {
   const preview = hiddenPages.length <= 24
     ? hiddenPages.map((page) => `<span class="hidden-page-chip">${page}</span>`).join("")
     : `<div class="hidden-pages-range-text">${escapeHtml(compressPageList(hiddenPages))}</div>`;
-  dom.editHiddenPagesSummary.innerHTML = `
+  target.innerHTML = `
     <div class="hidden-pages-stats">Pages affichées aux élèves: <strong>${visibleCount}</strong> / ${total}</div>
     <div class="hidden-pages-stats">Pages masquées: <strong>${hiddenPages.length}</strong></div>
     <div class="hidden-pages-preview">${preview}</div>
@@ -1360,7 +1362,7 @@ function renderAdminBooks() {
           <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
           <p>${realPages ? `${realPages} pages réelles` : "Pages inconnues"}</p>
           <p>${visiblePages ? `${visiblePages} pages affichées aux élèves` : "Pages visibles inconnues"}</p>
-          ${hiddenPagesCount ? `<p class="book-meta">${hiddenPagesCount} page(s) masquée(s)</p>` : ""}
+          ${hiddenPagesCount ? `<p class="book-meta">${hiddenPagesCount} page(s) masquée(s)${book.hiddenPageRanges ? ` - ${escapeHtml(book.hiddenPageRanges)}` : ""}</p>` : ""}
           <div class="admin-book-actions">
             ${renderOpenBookButton(book.bookId, "Ouvrir", "secondary-btn")}
             <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
@@ -1611,7 +1613,7 @@ async function openBook(book, options = {}) {
   const firstName = getUserFirstName();
   const defaultLoadingMessage = firstName
     ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
-    : "Chargement du livre en cours…";
+    : "Chargement du livre en cours. Veuillez patienter.";
   const { preferredPage = 0, loadingMessage = defaultLoadingMessage } = options;
   cancelActivePdfRender();
   state.currentBook = resolvedBook;
@@ -2051,6 +2053,7 @@ async function publishBook(event) {
   const bookId = slugify(dom.bookIdInput.value.trim() || title || pdfFile.name.replace(/\.pdf$/i, ""));
   const author = dom.bookAuthorInput.value.trim();
   const coverFile = dom.bookCoverInput.files?.[0] || null;
+  const hiddenPageRanges = dom.publishHiddenPagesInput?.value.trim() || "";
   const restrictedAccess = !!dom.publishRestrictedAccessInput.checked;
   const assignedEmails = normalizeAssignedEmailList(state.publishAssignedEmails);
 
@@ -2067,6 +2070,7 @@ async function publishBook(event) {
 
   try {
     const jsonDoc = await convertPdfFileToJson(pdfFile, { title, bookId, author });
+    renderHiddenPagesSummary(Number(jsonDoc.totalPages) || 0, hiddenPageRanges, dom.publishHiddenPagesSummary);
     dom.publishProgress.textContent = "Encodage du PDF en base64…";
     const pdfBase64 = arrayBufferToBase64(await pdfFile.arrayBuffer());
     const jsonBase64 = utf8ToBase64(JSON.stringify(jsonDoc, null, 2));
@@ -2100,6 +2104,7 @@ async function publishBook(event) {
       assetsBasePath: CONFIG.githubAssetsBasePath || "assets/books",
       restrictedAccess: restrictedAccess ? "true" : "false",
       assignedEmails: assignedEmails.join(","),
+      hiddenPageRanges,
     };
     if (coverBase64) {
       params.coverBase64 = coverBase64;
@@ -2206,8 +2211,8 @@ async function maybeRestoreCurrentBook(savedState = null) {
   if (!book) return false;
   const firstName = getUserFirstName();
   const loadingMessage = firstName
-    ? `Chargement en cours. Veuillez patienter, ${firstName}.`
-    : "Chargement en cours. Veuillez patienter.";
+    ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
+    : "Chargement du livre en cours. Veuillez patienter.";
   await openBook(book, {
     preferredPage: Number(saved.page) || 1,
     loadingMessage,
@@ -2233,7 +2238,7 @@ async function finishLoginFlow(options = {}) {
     : "Chargement de la bibliothèque en cours. Merci de patienter.";
   const readerLoadingMessage = firstName
     ? `Chargement du livre en cours. Veuillez patienter, ${firstName}.`
-    : "Chargement du livre en cours…";
+    : "Chargement du livre en cours. Veuillez patienter.";
 
   if (wantsDirectRestore) {
     switchScreen("reader");
@@ -2392,7 +2397,7 @@ async function handleLogin(event) {
     }
 
     const firstName = getUserFirstName();
-    setGateBusy(true, firstName ? `Chargement en cours. Veuillez patienter, ${firstName}.` : "Chargement en cours. Veuillez patienter…");
+    setGateBusy(true, firstName ? `Chargement de la bibliothèque en cours. Veuillez patienter, ${firstName}.` : "Chargement de la bibliothèque en cours. Veuillez patienter.");
 
     saveSession();
 
@@ -2780,6 +2785,7 @@ function attachEvents() {
     updateAssignmentSelection("edit", input.dataset.assignmentEmail, input.checked);
   });
   on(dom.bookTitleInput, "input", rebuildAdminBookIdFromTitle);
+  on(dom.publishHiddenPagesInput, "input", () => renderHiddenPagesSummary(Number(state.sourceTotalPages || 0) || 0, dom.publishHiddenPagesInput.value, dom.publishHiddenPagesSummary));
   on(dom.bookIdInput, "input", () => {
     dom.bookIdInput.dataset.lockedManual = dom.bookIdInput.value.trim() ? "1" : "";
   });
