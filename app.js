@@ -1790,6 +1790,45 @@ function buildProgressPayload() {
   return payload;
 }
 
+function syncSavedProgressIntoLibrary(payload) {
+  if (!payload?.bookId || !Array.isArray(state.books) || !state.books.length) return;
+  const bookIndex = state.books.findIndex((book) => book?.bookId === payload.bookId);
+  if (bookIndex === -1) return;
+
+  const previousBook = buildBookSnapshot(state.books[bookIndex]);
+  const currentPage = Number(payload.currentPage) || 0;
+  const progressPercent = Number(payload.progressPercent) || 0;
+  const readSecondsDelta = Number(payload.readSecondsDelta) || 0;
+  const lastOpenedAt = payload.lastOpenedAt || previousBook.lastOpenedAt || "";
+  const firstOpenedAt = previousBook.firstOpenedAt || payload.lastOpenedAt || previousBook.lastOpenedAt || "";
+  const sessionCount = (Number(previousBook.sessionCount) || 0) + (payload.lastOpenedAt ? 1 : 0);
+  const totalPages = Number(previousBook.visiblePageCount) || Number(previousBook.totalPages) || Number(payload.totalPages) || 0;
+  const completedAt = ((totalPages > 0 && currentPage >= totalPages) || progressPercent >= 99.5)
+    ? (previousBook.completedAt || new Date().toISOString())
+    : (previousBook.completedAt || "");
+  const updatedBook = buildBookSnapshot({
+    ...previousBook,
+    currentPage,
+    progressPercent,
+    lastUpdated: new Date().toISOString(),
+    progressLastUpdated: new Date().toISOString(),
+    lastOpenedAt,
+    firstOpenedAt,
+    readingSeconds: (Number(previousBook.readingSeconds) || 0) + readSecondsDelta,
+    sessionCount,
+    averageSessionSeconds: sessionCount ? Math.round((((Number(previousBook.readingSeconds) || 0) + readSecondsDelta) / sessionCount)) : 0,
+    lastPageVisited: currentPage || Number(previousBook.lastPageVisited) || 0,
+    completedAt,
+    readingStatus: completedAt ? "completed" : "started",
+  });
+
+  state.books[bookIndex] = updatedBook;
+  if (state.currentBook?.bookId === updatedBook.bookId) {
+    state.currentBook = { ...state.currentBook, ...updatedBook };
+  }
+  saveBooksCache();
+}
+
 async function saveProgress({ immediate = false, showSuccess = false, showError = false } = {}) {
   if (!state.email || !state.currentBook || !state.authVerified) return;
   const payload = buildProgressPayload();
@@ -1799,6 +1838,7 @@ async function saveProgress({ immediate = false, showSuccess = false, showError 
     setSaveStatus("Enregistrement...");
     const response = await jsonp("saveProgress", payload);
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
+    syncSavedProgressIntoLibrary(payload);
     state.lastSaveSignature = signature;
     if (payload.lastOpenedAt) state.currentBookOpenedAt = "";
     setSaveStatus("Progression enregistrée", "success");
@@ -3688,6 +3728,13 @@ function attachEvents() {
       state.currentBook = null;
       closePageJumpModal();
       switchScreen("library");
+      try {
+        await refreshBooks();
+      } catch (error) {
+        console.error(error);
+        renderBookList();
+        renderAdminBooks();
+      }
     } finally {
       setBookLoading(false);
     }
