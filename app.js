@@ -3065,9 +3065,7 @@ function extractStructuredPage(items) {
   }
   pushParagraph();
 
-  const plainText = blocks.map((b) => b.text).join("
-
-").trim();
+  const plainText = blocks.map((b) => b.text).join("\n\n").trim();
   const charCount = plainText.replace(/\s+/g, "").length;
   if (!blocks.length || charCount < 18) return { html: "", text: plainText, charCount, renderMode: "pdf" };
 
