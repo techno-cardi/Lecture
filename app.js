@@ -1790,45 +1790,6 @@ function buildProgressPayload() {
   return payload;
 }
 
-function syncSavedProgressIntoLibrary(payload) {
-  if (!payload?.bookId || !Array.isArray(state.books) || !state.books.length) return;
-  const bookIndex = state.books.findIndex((book) => book?.bookId === payload.bookId);
-  if (bookIndex === -1) return;
-
-  const previousBook = buildBookSnapshot(state.books[bookIndex]);
-  const currentPage = Number(payload.currentPage) || 0;
-  const progressPercent = Number(payload.progressPercent) || 0;
-  const readSecondsDelta = Number(payload.readSecondsDelta) || 0;
-  const lastOpenedAt = payload.lastOpenedAt || previousBook.lastOpenedAt || "";
-  const firstOpenedAt = previousBook.firstOpenedAt || payload.lastOpenedAt || previousBook.lastOpenedAt || "";
-  const sessionCount = (Number(previousBook.sessionCount) || 0) + (payload.lastOpenedAt ? 1 : 0);
-  const totalPages = Number(previousBook.visiblePageCount) || Number(previousBook.totalPages) || Number(payload.totalPages) || 0;
-  const completedAt = ((totalPages > 0 && currentPage >= totalPages) || progressPercent >= 99.5)
-    ? (previousBook.completedAt || new Date().toISOString())
-    : (previousBook.completedAt || "");
-  const updatedBook = buildBookSnapshot({
-    ...previousBook,
-    currentPage,
-    progressPercent,
-    lastUpdated: new Date().toISOString(),
-    progressLastUpdated: new Date().toISOString(),
-    lastOpenedAt,
-    firstOpenedAt,
-    readingSeconds: (Number(previousBook.readingSeconds) || 0) + readSecondsDelta,
-    sessionCount,
-    averageSessionSeconds: sessionCount ? Math.round((((Number(previousBook.readingSeconds) || 0) + readSecondsDelta) / sessionCount)) : 0,
-    lastPageVisited: currentPage || Number(previousBook.lastPageVisited) || 0,
-    completedAt,
-    readingStatus: completedAt ? "completed" : "started",
-  });
-
-  state.books[bookIndex] = updatedBook;
-  if (state.currentBook?.bookId === updatedBook.bookId) {
-    state.currentBook = { ...state.currentBook, ...updatedBook };
-  }
-  saveBooksCache();
-}
-
 async function saveProgress({ immediate = false, showSuccess = false, showError = false } = {}) {
   if (!state.email || !state.currentBook || !state.authVerified) return;
   const payload = buildProgressPayload();
@@ -1838,7 +1799,6 @@ async function saveProgress({ immediate = false, showSuccess = false, showError 
     setSaveStatus("Enregistrement...");
     const response = await jsonp("saveProgress", payload);
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
-    syncSavedProgressIntoLibrary(payload);
     state.lastSaveSignature = signature;
     if (payload.lastOpenedAt) state.currentBookOpenedAt = "";
     setSaveStatus("Progression enregistrée", "success");
@@ -2476,6 +2436,29 @@ function normalizeLineText(parts) {
     .trim();
 }
 
+function repairDecorativeInitialText(text = "") {
+  return String(text || "").replace(
+    /(^|
+
+)([A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ])\s+([a-zàâäçéèêëîïôöùûüÿæœ])/gm,
+    (match, boundary, initial, next) => `${boundary}${initial}${next}`
+  );
+}
+
+function repairDecorativeInitialHtml(html = "") {
+  let repaired = String(html || "");
+  const pattern = /<p([^>]*)>([A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ])<\/p>\s*<p([^>]*)>([a-zàâäçéèêëîïôöùûüÿæœ][\s\S]*?)<\/p>/g;
+  let previous = "";
+  while (repaired !== previous) {
+    previous = repaired;
+    repaired = repaired.replace(pattern, (match, firstAttrs, initial, secondAttrs, remainder) => {
+      const attrs = secondAttrs || firstAttrs || "";
+      return `<p${attrs}>${initial}${remainder}</p>`;
+    });
+  }
+  return repaired;
+}
+
 function buildStructuredPageFromPlainText(rawText = "") {
   const source = String(rawText || "")
     .replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -2517,8 +2500,14 @@ function getRenderableTextPage(pageNumber) {
   const page = state.textDoc?.pages?.[sourcePageNumber - 1];
   if (!page) return null;
   if (page.renderMode === "pdf") return { renderMode: "pdf" };
-  if (page.html) return { renderMode: "text", html: page.html, text: page.text || "" };
-  return buildStructuredPageFromPlainText(page.text || "");
+  if (page.html) {
+    return {
+      renderMode: "text",
+      html: repairDecorativeInitialHtml(page.html),
+      text: repairDecorativeInitialText(page.text || ""),
+    };
+  }
+  return buildStructuredPageFromPlainText(repairDecorativeInitialText(page.text || ""));
 }
 
 async function renderTextPage(pageNumber) {
@@ -2993,6 +2982,42 @@ function buildLineFromWords(words) {
   return normalizeLineText(parts);
 }
 
+function mergeDecorativeInitialLines(lines) {
+  if (!Array.isArray(lines) || lines.length < 2) return Array.isArray(lines) ? lines.slice() : [];
+  const merged = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const current = lines[index];
+    const next = lines[index + 1];
+    const currentText = String(current?.text || "").trim();
+    const nextText = String(next?.text || "").trim();
+    const currentHeight = Number(current?.height) || 0;
+    const nextHeight = Number(next?.height) || 0;
+    const currentRight = Number(current?.right);
+    const nextLeft = Number(next?.left);
+    const joinGap = isFinite(currentRight) && isFinite(nextLeft) ? Math.abs(nextLeft - currentRight) : Number.POSITIVE_INFINITY;
+    const isDecorativeInitial = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(currentText)
+      && /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(nextText)
+      && currentHeight > nextHeight * 1.3
+      && Math.abs((Number(current?.y) || 0) - (Number(next?.y) || 0)) <= Math.max(currentHeight, nextHeight) * 0.95
+      && joinGap <= Math.max(12, nextHeight * 1.25);
+
+    if (isDecorativeInitial) {
+      merged.push({
+        text: currentText + nextText,
+        y: Math.min(Number(current?.y) || 0, Number(next?.y) || 0),
+        height: Math.max(currentHeight, nextHeight),
+        left: Number(current?.left) || 0,
+        right: Number(next?.right) || Number(next?.left) || 0,
+      });
+      index += 1;
+      continue;
+    }
+
+    merged.push(current);
+  }
+  return merged;
+}
+
 function extractStructuredPage(items) {
   if (!Array.isArray(items) || !items.length) return { html: "", text: "", charCount: 0, renderMode: "pdf" };
   const entries = items
@@ -3014,16 +3039,30 @@ function extractStructuredPage(items) {
       currentWords.push(entry); currentHeight = Math.max(currentHeight, entry.height || 10);
     } else {
       const ordered = currentWords.sort((a, b) => a.x - b.x);
-      lines.push({ text: buildLineFromWords(ordered), y: currentY, height: currentHeight, left: ordered[0]?.x || 0 });
+      lines.push({
+        text: buildLineFromWords(ordered),
+        y: currentY,
+        height: currentHeight,
+        left: ordered[0]?.x || 0,
+        right: (ordered[ordered.length - 1]?.x || 0) + (ordered[ordered.length - 1]?.width || 0),
+      });
       currentWords = [entry]; currentY = entry.y; currentHeight = entry.height || 10;
     }
   }
   if (currentWords.length) {
     const ordered = currentWords.sort((a, b) => a.x - b.x);
-    lines.push({ text: buildLineFromWords(ordered), y: currentY, height: currentHeight, left: ordered[0]?.x || 0 });
+    lines.push({
+      text: buildLineFromWords(ordered),
+      y: currentY,
+      height: currentHeight,
+      left: ordered[0]?.x || 0,
+      right: (ordered[ordered.length - 1]?.x || 0) + (ordered[ordered.length - 1]?.width || 0),
+    });
   }
 
-  const filteredLines = lines.map((l) => ({ ...l, text: String(l.text || "").trim() })).filter((l) => l.text);
+  const filteredLines = mergeDecorativeInitialLines(
+    lines.map((l) => ({ ...l, text: String(l.text || "").trim() })).filter((l) => l.text)
+  );
   const avgH = filteredLines.reduce((s, l) => s + (l.height || 0), 0) / Math.max(1, filteredLines.length);
   const leftVals = filteredLines.map((l) => l.left).sort((a, b) => a - b);
   const baseLeft = leftVals[Math.floor(leftVals.length * 0.2)] || 0;
@@ -3728,13 +3767,6 @@ function attachEvents() {
       state.currentBook = null;
       closePageJumpModal();
       switchScreen("library");
-      try {
-        await refreshBooks();
-      } catch (error) {
-        console.error(error);
-        renderBookList();
-        renderAdminBooks();
-      }
     } finally {
       setBookLoading(false);
     }
