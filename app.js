@@ -2436,29 +2436,6 @@ function normalizeLineText(parts) {
     .trim();
 }
 
-function repairDecorativeInitialText(text = "") {
-  return String(text || "").replace(
-    /(^|
-
-)([A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ])\s+([a-zàâäçéèêëîïôöùûüÿæœ])/gm,
-    (match, boundary, initial, next) => `${boundary}${initial}${next}`
-  );
-}
-
-function repairDecorativeInitialHtml(html = "") {
-  let repaired = String(html || "");
-  const pattern = /<p([^>]*)>([A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ])<\/p>\s*<p([^>]*)>([a-zàâäçéèêëîïôöùûüÿæœ][\s\S]*?)<\/p>/g;
-  let previous = "";
-  while (repaired !== previous) {
-    previous = repaired;
-    repaired = repaired.replace(pattern, (match, firstAttrs, initial, secondAttrs, remainder) => {
-      const attrs = secondAttrs || firstAttrs || "";
-      return `<p${attrs}>${initial}${remainder}</p>`;
-    });
-  }
-  return repaired;
-}
-
 function buildStructuredPageFromPlainText(rawText = "") {
   const source = String(rawText || "")
     .replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -2500,14 +2477,8 @@ function getRenderableTextPage(pageNumber) {
   const page = state.textDoc?.pages?.[sourcePageNumber - 1];
   if (!page) return null;
   if (page.renderMode === "pdf") return { renderMode: "pdf" };
-  if (page.html) {
-    return {
-      renderMode: "text",
-      html: repairDecorativeInitialHtml(page.html),
-      text: repairDecorativeInitialText(page.text || ""),
-    };
-  }
-  return buildStructuredPageFromPlainText(repairDecorativeInitialText(page.text || ""));
+  if (page.html) return { renderMode: "text", html: page.html, text: page.text || "" };
+  return buildStructuredPageFromPlainText(page.text || "");
 }
 
 async function renderTextPage(pageNumber) {
@@ -2992,22 +2963,27 @@ function mergeDecorativeInitialLines(lines) {
     const nextText = String(next?.text || "").trim();
     const currentHeight = Number(current?.height) || 0;
     const nextHeight = Number(next?.height) || 0;
+    const currentTop = Number(current?.y) || 0;
+    const nextTop = Number(next?.y) || 0;
+    const currentLeft = Number(current?.left) || 0;
+    const nextLeft = Number(next?.left) || 0;
     const currentRight = Number(current?.right);
-    const nextLeft = Number(next?.left);
-    const joinGap = isFinite(currentRight) && isFinite(nextLeft) ? Math.abs(nextLeft - currentRight) : Number.POSITIVE_INFINITY;
-    const isDecorativeInitial = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(currentText)
-      && /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(nextText)
-      && currentHeight > nextHeight * 1.3
-      && Math.abs((Number(current?.y) || 0) - (Number(next?.y) || 0)) <= Math.max(currentHeight, nextHeight) * 0.95
-      && joinGap <= Math.max(12, nextHeight * 1.25);
 
-    if (isDecorativeInitial) {
+    const currentIsInitial = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(currentText);
+    const nextStartsLowercase = /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(nextText);
+    const significantlyTaller = currentHeight > nextHeight * 1.55;
+    const sameParagraphBand = nextTop <= currentTop + Math.max(currentHeight * 1.15, nextHeight * 1.4, 16);
+    const nextBeginsToTheRight = nextLeft >= currentLeft + Math.max(currentHeight * 0.18, 2);
+    const gapToNext = isFinite(currentRight) ? nextLeft - currentRight : 0;
+    const visuallyClose = !isFinite(currentRight) || gapToNext <= Math.max(currentHeight * 0.8, nextHeight * 2.2, 18);
+
+    if (currentIsInitial && nextStartsLowercase && significantlyTaller && sameParagraphBand && nextBeginsToTheRight && visuallyClose) {
       merged.push({
         text: currentText + nextText,
-        y: Math.min(Number(current?.y) || 0, Number(next?.y) || 0),
+        y: Math.max(currentTop, nextTop),
         height: Math.max(currentHeight, nextHeight),
-        left: Number(current?.left) || 0,
-        right: Number(next?.right) || Number(next?.left) || 0,
+        left: Math.min(currentLeft, nextLeft),
+        right: isFinite(Number(next?.right)) ? Number(next.right) : nextLeft,
       });
       index += 1;
       continue;
@@ -3089,7 +3065,9 @@ function extractStructuredPage(items) {
   }
   pushParagraph();
 
-  const plainText = blocks.map((b) => b.text).join("\n\n").trim();
+  const plainText = blocks.map((b) => b.text).join("
+
+").trim();
   const charCount = plainText.replace(/\s+/g, "").length;
   if (!blocks.length || charCount < 18) return { html: "", text: plainText, charCount, renderMode: "pdf" };
 
