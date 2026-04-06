@@ -1038,6 +1038,15 @@ function getFilteredReadingCheckOverviewUsers() {
     .sort((left, right) => compareReadingCheckUsers(left, right, sortMode));
 }
 
+
+
+function getPendingReadingCheckUser() {
+  const selectedEmail = normalizeEmail(state.loadingReadingCheckEmail || state.selectedReadingCheckEmail);
+  if (!selectedEmail) return state.pendingReadingCheckUser || null;
+  return state.assignableUsers.find((user) => normalizeEmail(user.email) === selectedEmail)
+    || state.pendingReadingCheckUser
+    || null;
+}
 function getReadingCheckBookKey(book, index) {
   return String(book?.bookId || book?.title || `book-${index}`);
 }
