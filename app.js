@@ -1011,6 +1011,11 @@ function updateReadingCheckModeUi() {
   if (dom.readingCheckOverviewBookField) dom.readingCheckOverviewBookField.hidden = !isOverview;
   if (dom.readingCheckGlobalFilterField) dom.readingCheckGlobalFilterField.hidden = !isOverview;
   if (dom.readingCheckGlobalSummary) dom.readingCheckGlobalSummary.hidden = !isOverview;
+  if (dom.readingCheckModal) {
+    dom.readingCheckModal.dataset.viewMode = isOverview ? "overview" : "student";
+    const modalPanel = dom.readingCheckModal.querySelector('.reading-check-modal-panel');
+    if (modalPanel) modalPanel.dataset.viewMode = isOverview ? "overview" : "student";
+  }
 }
 
 function getSortedReadingCheckUsers() {

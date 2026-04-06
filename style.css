@@ -2750,3 +2750,164 @@ body.focus-mode-active .text-page {
     padding: 12px;
   }
 }
+
+/* Final professional refinements for the global reading overview layout */
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-toolbar {
+  grid-template-columns: minmax(0, 1.18fr) minmax(220px, 0.94fr) minmax(200px, 0.88fr) minmax(220px, 0.94fr) auto;
+  grid-template-areas: "search filter sort book toggle";
+  gap: 8px 12px;
+  align-items: end;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] #readingCheckSearchField {
+  grid-area: search;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] #readingCheckGlobalFilterField {
+  grid-area: filter;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] #readingCheckSortField {
+  grid-area: sort;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] #readingCheckOverviewBookField {
+  grid-area: book;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-toggle {
+  grid-area: toggle;
+  justify-self: end;
+  align-self: end;
+  padding-bottom: 8px;
+  white-space: nowrap;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary {
+  gap: 6px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary-head {
+  padding: 0 2px;
+  margin: 0;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary-title {
+  font-size: 0.95rem;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary-scope {
+  font-size: 0.9rem;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary .reading-check-summary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary .reading-check-summary-card {
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary .reading-check-summary-label {
+  font-size: 0.84rem;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary .reading-check-summary-value {
+  font-size: 0.98rem;
+  line-height: 1.1;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-layout {
+  grid-template-columns: minmax(360px, 0.96fr) minmax(0, 1.54fr);
+  gap: 14px;
+  min-height: clamp(420px, 56vh, 760px);
+  align-items: stretch;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-users-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-user-list {
+  flex: 1 1 auto;
+  min-height: clamp(340px, 48vh, 680px);
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-gutter: stable both-edges;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-details {
+  min-height: clamp(340px, 48vh, 680px);
+  overflow-y: auto;
+}
+
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-details-shell,
+#readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-details-content {
+  min-height: 100%;
+}
+
+@media (max-width: 1520px) {
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-toolbar {
+    grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(200px, 1fr));
+    grid-template-areas:
+      "search filter sort book"
+      "toggle toggle toggle toggle";
+  }
+
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-toggle {
+    justify-self: start;
+    white-space: normal;
+    padding-bottom: 0;
+  }
+}
+
+@media (max-width: 1180px) {
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "search filter"
+      "sort book"
+      "toggle toggle";
+  }
+
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary .reading-check-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-user-list,
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-details {
+    min-height: min(42vh, 420px);
+  }
+}
+
+@media (max-width: 720px) {
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-toolbar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "search"
+      "filter"
+      "sort"
+      "book"
+      "toggle";
+  }
+
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-global-summary .reading-check-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-user-list,
+  #readingCheckModal .reading-check-modal-panel[data-view-mode="overview"] .reading-check-details {
+    min-height: min(38vh, 360px);
+  }
+}
