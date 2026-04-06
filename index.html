@@ -172,7 +172,7 @@
         <div class="admin-books-wrap">
           <div class="admin-books-head">
             <h4>Livres enregistrés</h4>
-            <button id="reloadAdminBooksBtn" class="secondary-btn" type="button">Recharger</button>
+            <div class="admin-books-tools"><button id="reloadAdminBooksBtn" class="secondary-btn" type="button">Recharger</button><span id="adminBooksStatus" class="save-status"></span></div>
           </div>
           <div id="adminBooksList" class="admin-books-list"></div>
         </div>
@@ -211,6 +211,19 @@
           </label>
           <div id="editHiddenPagesSummary" class="hidden-pages-summary"></div>
           <p class="admin-help modal-help">Les pages indiquées ici ne seront plus affichées aux élèves. Utilise des plages comme 1-7, 12-13.</p>
+          <div class="edit-cover-block">
+            <div class="edit-cover-preview-wrap">
+              <div id="editCoverPreview" class="edit-cover-preview"></div>
+            </div>
+            <label>Nouvelle couverture
+              <input id="editBookCoverInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif">
+            </label>
+            <label for="editRemoveCoverInput" class="checkbox-label">
+              <input id="editRemoveCoverInput" type="checkbox">
+              <span>Retirer la couverture actuelle</span>
+            </label>
+            <p class="admin-help modal-help">Tu peux conserver la couverture actuelle, en choisir une nouvelle ou la retirer.</p>
+          </div>
           <div class="access-assign-block modal-access-block">
             <label for="editRestrictedAccessInput" class="checkbox-label">
               <input id="editRestrictedAccessInput" type="checkbox">

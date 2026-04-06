@@ -71,6 +71,7 @@ const dom = {
   publishProgress: document.getElementById("publishProgress"),
   publishSizeWarning: document.getElementById("publishSizeWarning"),
   reloadAdminBooksBtn: document.getElementById("reloadAdminBooksBtn"),
+  adminBooksStatus: document.getElementById("adminBooksStatus"),
   adminBooksList: document.getElementById("adminBooksList"),
 
   bookLoadingOverlay: document.getElementById("bookLoadingOverlay"),
@@ -112,6 +113,9 @@ const dom = {
   editAssignedSearchInput: document.getElementById("editAssignedSearchInput"),
   editAssignedSummary: document.getElementById("editAssignedSummary"),
   editAssignedList: document.getElementById("editAssignedList"),
+  editCoverPreview: document.getElementById("editCoverPreview"),
+  editBookCoverInput: document.getElementById("editBookCoverInput"),
+  editRemoveCoverInput: document.getElementById("editRemoveCoverInput"),
   editBookId: document.getElementById("editBookId"),
   editBookSaveBtn: document.getElementById("editBookSaveBtn"),
   editBookCancelBtn: document.getElementById("editBookCancelBtn"),
@@ -228,6 +232,8 @@ const state = {
   openingBookId: "",
   editBusyBookId: "",
   deleteBusyBookId: "",
+  booksRefreshPromise: null,
+  pendingEditCoverObjectUrl: "",
   selectedReadingCheckEmail: "",
   readingCheckData: null,
   loadingReadingCheckEmail: "",
@@ -602,6 +608,44 @@ function readBooksCache() {
 
 function clearBooksCache() {
   try { localStorage.removeItem(LS_BOOKS_CACHE_KEY); } catch (_) {}
+}
+
+
+function setAdminBooksStatus(message = "", tone = "") {
+  if (!dom.adminBooksStatus) return;
+  dom.adminBooksStatus.textContent = message || "";
+  dom.adminBooksStatus.className = `save-status${tone ? ` status-${tone}` : ""}`;
+}
+
+function revokePendingEditCoverObjectUrl() {
+  if (!state.pendingEditCoverObjectUrl) return;
+  try { URL.revokeObjectURL(state.pendingEditCoverObjectUrl); } catch (_) {}
+  state.pendingEditCoverObjectUrl = "";
+}
+
+function renderCoverPreviewMarkup(book = {}, previewUrl = "") {
+  const title = escapeHtml(book?.title || "Livre");
+  const effectiveUrl = previewUrl || (book?.coverPath ? computePublicAssetUrl(book.coverPath) : "");
+  if (effectiveUrl) {
+    return `<div class="edit-cover-preview-image"><img src="${escapeHtml(effectiveUrl)}" alt="Couverture de ${title}"></div>`;
+  }
+  return `<div class="edit-cover-preview-placeholder">${escapeHtml((book?.title || "?").trim().slice(0, 1).toUpperCase())}</div>`;
+}
+
+function updateEditCoverPreview(book = null) {
+  if (!dom.editCoverPreview) return;
+  const sourceBook = book || getBookById(dom.editBookId?.value || "") || {};
+  const selectedFile = dom.editBookCoverInput?.files?.[0] || null;
+  const removeRequested = !!dom.editRemoveCoverInput?.checked;
+  revokePendingEditCoverObjectUrl();
+  let previewUrl = "";
+  if (selectedFile) {
+    previewUrl = URL.createObjectURL(selectedFile);
+    state.pendingEditCoverObjectUrl = previewUrl;
+  } else if (!removeRequested && sourceBook?.coverPath) {
+    previewUrl = computePublicAssetUrl(sourceBook.coverPath);
+  }
+  dom.editCoverPreview.innerHTML = renderCoverPreviewMarkup(removeRequested ? { ...sourceBook, coverPath: "" } : sourceBook, previewUrl);
 }
 
 function getVisibleBookPageCount(book) {
@@ -1660,7 +1704,7 @@ function clearCurrentBookState() {
 // ════════════════════════════════════════
 // JSONP — appels GET vers Apps Script
 // ════════════════════════════════════════
-function jsonp(action, params = {}) {
+function jsonp(action, params = {}, options = {}) {
   return new Promise((resolve, reject) => {
     const baseUrl = CONFIG.appsScriptUrl;
     if (!baseUrl) { reject(new Error("URL Apps Script absente.")); return; }
@@ -1680,10 +1724,11 @@ function jsonp(action, params = {}) {
     const script = document.createElement("script");
     const cleanup = () => { delete window[callbackName]; script.remove(); };
 
+    const timeoutMs = Math.max(3000, Number(options.timeoutMs) || 22000);
     const timeoutId = window.setTimeout(() => {
       cleanup();
       reject(new Error("Délai dépassé lors de la connexion au service."));
-    }, 22000);
+    }, timeoutMs);
 
     window[callbackName] = (payload) => {
       window.clearTimeout(timeoutId);
@@ -1743,22 +1788,45 @@ async function auth(email) {
   return jsonp("auth", { email });
 }
 
-async function refreshBooks() {
+async function refreshBooks(options = {}) {
+  const { showFeedback = false, origin = "" } = options || {};
   if (!state.email || !state.authVerified) {
     throw new Error("Session invalide.");
   }
-  const response = await jsonp("listBooks", {
-    email: state.email,
-    adminCode: state.adminUnlocked ? state.adminCode : "",
-  });
-  if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
-  state.books = Array.isArray(response.books) ? response.books.map(buildBookSnapshot).filter(Boolean) : [];
-  saveBooksCache();
-  renderBookList();
-  renderAdminBooks();
-  if (state.adminUnlocked) {
-    renderAssignableUsers("publish");
-    renderAssignableUsers("edit");
+  if (state.booksRefreshPromise) return state.booksRefreshPromise;
+
+  if (origin === "admin") {
+    setAdminBooksStatus("Actualisation…");
+    if (dom.reloadAdminBooksBtn) dom.reloadAdminBooksBtn.disabled = true;
+  }
+
+  state.booksRefreshPromise = (async () => {
+    const response = await jsonp("listBooks", {
+      email: state.email,
+      adminCode: state.adminUnlocked ? state.adminCode : "",
+    }, { timeoutMs: 30000 });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
+    state.books = Array.isArray(response.books) ? response.books.map(buildBookSnapshot).filter(Boolean) : [];
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
+    if (state.adminUnlocked) {
+      renderAssignableUsers("publish");
+      renderAssignableUsers("edit");
+    }
+    if (origin === "admin") setAdminBooksStatus("Liste à jour.", "success");
+    if (showFeedback) showToast("Bibliothèque actualisée");
+    return state.books;
+  })();
+
+  try {
+    return await state.booksRefreshPromise;
+  } catch (error) {
+    if (origin === "admin") setAdminBooksStatus(error?.message || "Échec de l'actualisation.", "error");
+    throw error;
+  } finally {
+    state.booksRefreshPromise = null;
+    if (origin === "admin" && dom.reloadAdminBooksBtn) dom.reloadAdminBooksBtn.disabled = false;
   }
 }
 
@@ -2772,35 +2840,57 @@ async function testGithubConnection() {
 
 async function toggleBookPublished(bookId) {
   if (!canSeeAdminPanel() || !state.adminUnlocked) return;
+  const book = getBookById(bookId);
+  if (!book) return;
+  const previous = buildBookSnapshot(book);
+  const nextPublished = !book.published;
+  state.books = state.books.map((item) => item.bookId === bookId ? buildBookSnapshot({ ...item, published: nextPublished }) : item);
+  saveBooksCache();
+  renderBookList();
+  renderAdminBooks();
   try {
-    const book = getBookById(bookId);
     const response = await jsonp("toggleBookPublished", {
       email: state.email, adminCode: state.adminCode,
-      bookId, published: book && book.published ? "false" : "true",
-    });
+      bookId, published: nextPublished ? "true" : "false",
+    }, { timeoutMs: 30000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer le statut.");
-    await refreshBooks();
     showToast("Statut mis à jour");
+    void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
   } catch (error) {
     console.error(error);
-    showToast("Impossible de changer le statut");
+    state.books = state.books.map((item) => item.bookId === bookId ? previous : item);
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
+    showToast(error?.message || "Impossible de changer le statut");
   }
 }
 
 async function toggleBookPdfAllowed(bookId) {
   if (!canSeeAdminPanel() || !state.adminUnlocked) return;
+  const book = getBookById(bookId);
+  if (!book) return;
+  const previous = buildBookSnapshot(book);
+  const nextAllowed = !book.pdfAllowed;
+  state.books = state.books.map((item) => item.bookId === bookId ? buildBookSnapshot({ ...item, pdfAllowed: nextAllowed }) : item);
+  saveBooksCache();
+  renderBookList();
+  renderAdminBooks();
   try {
-    const book = getBookById(bookId);
     const response = await jsonp("setPdfAllowed", {
       email: state.email, adminCode: state.adminCode,
-      bookId, pdfAllowed: book && book.pdfAllowed ? "false" : "true",
-    });
+      bookId, pdfAllowed: nextAllowed ? "true" : "false",
+    }, { timeoutMs: 30000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer l'autorisation PDF.");
-    await refreshBooks();
     showToast("Autorisation PDF mise à jour");
+    void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
   } catch (error) {
     console.error(error);
-    showToast("Impossible de modifier l'autorisation PDF");
+    state.books = state.books.map((item) => item.bookId === bookId ? previous : item);
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
+    showToast(error?.message || "Impossible de modifier l'autorisation PDF");
   }
 }
 
@@ -2811,34 +2901,48 @@ async function deleteBook(bookId) {
   if (!book) return;
 
   const label = book.title || book.bookId || "ce livre";
-  const confirmed = window.confirm(`Supprimer définitivement « ${label} » ?\n\nCette action retirera le livre de la bibliothèque et effacera ses données liées.`);
+  const confirmed = window.confirm(`Supprimer définitivement « ${label} » ?
+
+Cette action retirera le livre de la bibliothèque et effacera ses données liées.`);
   if (!confirmed) return;
 
-  const safety = window.prompt(`Confirmation de sécurité\n\nTape SUPPRIMER pour confirmer la suppression définitive de « ${label} ».`, "");
+  const safety = window.prompt(`Confirmation de sécurité
+
+Tape SUPPRIMER pour confirmer la suppression définitive de « ${label} ».`, "");
   if (safety !== "SUPPRIMER") {
     showToast("Suppression annulée");
     return;
   }
 
+  const previousBooks = state.books.map(buildBookSnapshot).filter(Boolean);
   state.deleteBusyBookId = bookId;
+  setAdminBooksStatus(`Suppression de « ${label} » en cours…`);
+  state.books = state.books.filter((item) => item.bookId !== bookId);
+  saveBooksCache();
+  renderBookList();
   renderAdminBooks();
+  showToast(`Suppression de « ${label} » en cours…`);
+
   try {
     const response = await jsonp("deleteBook", {
       email: state.email,
       adminCode: state.adminCode,
       bookId,
-    });
+    }, { timeoutMs: 90000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer le livre.");
-    state.books = state.books.filter((item) => item.bookId !== bookId);
-    saveBooksCache();
-    renderBookList();
-    renderAdminBooks();
     if (Array.isArray(response.warnings) && response.warnings.length) {
       console.warn("Avertissements lors de la suppression du livre :", response.warnings);
     }
+    setAdminBooksStatus(response.message || "Livre supprimé.", "success");
     showToast(response.message || "Livre supprimé");
+    void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
   } catch (error) {
     console.error(error);
+    state.books = previousBooks;
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
+    setAdminBooksStatus(error?.message || "Impossible de supprimer le livre.", "error");
     showToast(error?.message || "Impossible de supprimer le livre");
   } finally {
     state.deleteBusyBookId = "";
@@ -2864,8 +2968,11 @@ async function openEditBookModal(bookId) {
     state.editAssignedEmails = normalizeAssignedEmailList(book.assignedEmails || []);
     dom.editAssignedSearchInput.value = "";
     dom.editBookStatus.textContent = "";
+    if (dom.editBookCoverInput) dom.editBookCoverInput.value = "";
+    if (dom.editRemoveCoverInput) dom.editRemoveCoverInput.checked = false;
     renderAssignableUsers("edit");
     renderHiddenPagesSummary(Number(book.totalPages) || 0, book.hiddenPageRanges || "");
+    updateEditCoverPreview(book);
     dom.editBookModal.hidden = false;
   } finally {
     state.editBusyBookId = "";
@@ -2887,37 +2994,82 @@ async function saveEditBook() {
   const assignedEmails = normalizeAssignedEmailList(state.editAssignedEmails);
   const currentBook = getBookById(bookId);
   const totalPages = Number(currentBook?.totalPages) || 0;
+  const coverFile = dom.editBookCoverInput?.files?.[0] || null;
+  const removeCover = !!dom.editRemoveCoverInput?.checked;
   if (!title) { dom.editBookStatus.textContent = "Le titre est requis."; return; }
   if (restrictedAccess && !assignedEmails.length) { dom.editBookStatus.textContent = "Choisis au moins un utilisateur."; return; }
   dom.editBookSaveBtn.disabled = true;
-  dom.editBookStatus.textContent = "Enregistrement…";
+  dom.editBookStatus.textContent = coverFile || removeCover ? "Téléversement et enregistrement…" : "Enregistrement…";
   renderHiddenPagesSummary(totalPages, hiddenPageRanges);
+
+  const optimisticBook = buildBookSnapshot({
+    ...(currentBook || {}),
+    bookId,
+    title,
+    author,
+    description,
+    hiddenPageRanges,
+    restrictedAccess,
+    assignedEmails,
+    coverPath: removeCover ? "" : (currentBook?.coverPath || ""),
+  });
+  const previousBooks = state.books.map(buildBookSnapshot).filter(Boolean);
+
   try {
-    const response = await jsonp("updateBook", {
-      email: state.email, adminCode: state.adminCode,
-      bookId, title, author, description, hiddenPageRanges,
-      restrictedAccess: restrictedAccess ? "true" : "false",
-      assignedEmails: assignedEmails.join(","),
-    });
-    if (!response?.ok) throw new Error(response?.message || "Impossible de modifier le livre.");
-    if (response.book?.bookId) {
-      const nextBook = buildBookSnapshot(response.book);
-      state.books = state.books.map((book) => (book.bookId === nextBook.bookId ? nextBook : book));
-      saveBooksCache();
-      renderBookList();
-      renderAdminBooks();
-      renderHiddenPagesSummary(Number(nextBook.totalPages) || totalPages, nextBook.hiddenPageRanges || hiddenPageRanges);
+    let response;
+    if (coverFile || removeCover) {
+      const payload = {
+        action: "updateBook",
+        email: state.email,
+        adminCode: state.adminCode,
+        bookId,
+        title,
+        author,
+        description,
+        hiddenPageRanges,
+        restrictedAccess: restrictedAccess ? "true" : "false",
+        assignedEmails: assignedEmails.join(","),
+        removeCover: removeCover ? "true" : "false",
+      };
+      if (coverFile) {
+        payload.coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
+        payload.coverExt = detectCoverExtension(coverFile);
+      }
+      response = await postAdminAction(payload);
+    } else {
+      response = await jsonp("updateBook", {
+        email: state.email, adminCode: state.adminCode,
+        bookId, title, author, description, hiddenPageRanges,
+        restrictedAccess: restrictedAccess ? "true" : "false",
+        assignedEmails: assignedEmails.join(","),
+      }, { timeoutMs: 45000 });
     }
-    dom.editBookStatus.textContent = "Livre modifié.";
+    if (!response?.ok) throw new Error(response?.message || "Impossible de modifier le livre.");
+    const nextBook = response.book?.bookId ? buildBookSnapshot(response.book) : optimisticBook;
+    state.books = state.books.map((book) => (book.bookId === nextBook.bookId ? nextBook : book));
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
+    renderHiddenPagesSummary(Number(nextBook.totalPages) || totalPages, nextBook.hiddenPageRanges || hiddenPageRanges);
+    updateEditCoverPreview(nextBook);
+    dom.editBookStatus.textContent = response.message || "Livre modifié.";
+    setAdminBooksStatus(response.message || "Livre modifié.", "success");
+    showToast(response.message || "Livre modifié");
     window.setTimeout(() => {
       dom.editBookModal.hidden = true;
       dom.editBookStatus.textContent = "";
       if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = "";
-    }, 450);
-    showToast("Livre modifié");
-    await refreshBooks().catch((error) => { console.error(error); });
+      if (dom.editBookCoverInput) dom.editBookCoverInput.value = "";
+      if (dom.editRemoveCoverInput) dom.editRemoveCoverInput.checked = false;
+      revokePendingEditCoverObjectUrl();
+    }, 500);
+    void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
   } catch (error) {
     console.error(error);
+    state.books = previousBooks;
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
     dom.editBookStatus.textContent = error.message || "Erreur lors de la modification.";
   } finally {
     dom.editBookSaveBtn.disabled = false;
@@ -3843,8 +3995,8 @@ function attachEvents() {
 
   // Bibliothèque
   on(dom.refreshBooksBtn, "click", async () => {
-    try { await refreshBooks(); showToast("Bibliothèque actualisée"); }
-    catch (e) { console.error(e); showToast("Impossible d'actualiser"); }
+    try { await refreshBooks({ showFeedback: true, origin: "library" }); }
+    catch (e) { console.error(e); showToast(e.message || "Impossible d'actualiser"); }
   });
 
   // Lecteur — retour
@@ -3953,7 +4105,10 @@ function attachEvents() {
   on(dom.unlockAdminBtn, "click", unlockAdmin);
   on(dom.testGithubBtn, "click", testGithubConnection);
   on(dom.publishForm, "submit", publishBook);
-  on(dom.reloadAdminBooksBtn, "click", refreshBooks);
+  on(dom.reloadAdminBooksBtn, "click", () => refreshBooks({ showFeedback: true, origin: "admin" }).catch((error) => {
+    console.error(error);
+    showToast(error.message || "Impossible d'actualiser la liste des livres");
+  }));
   on(dom.addUsersBtn, "click", addUsersInBulk);
   on(dom.studentCheckBtn, "click", openReadingCheckModal);
   on(dom.readingCheckCloseBtn, "click", closeReadingCheckModal);
@@ -4011,12 +4166,30 @@ function attachEvents() {
     selectBookReviewUser(btn.dataset.bookReviewEmail);
   });
   on(dom.editBookSaveBtn, "click", saveEditBook);
-  on(dom.editBookCancelBtn, "click", () => { dom.editBookModal.hidden = true; dom.editBookStatus.textContent = ""; if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = ""; });
+  on(dom.editBookCoverInput, "change", () => {
+    if (dom.editRemoveCoverInput && dom.editBookCoverInput?.files?.length) dom.editRemoveCoverInput.checked = false;
+    updateEditCoverPreview();
+  });
+  on(dom.editRemoveCoverInput, "change", () => {
+    if (dom.editRemoveCoverInput?.checked && dom.editBookCoverInput) dom.editBookCoverInput.value = "";
+    updateEditCoverPreview();
+  });
+  on(dom.editBookCancelBtn, "click", () => {
+    dom.editBookModal.hidden = true;
+    dom.editBookStatus.textContent = "";
+    if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = "";
+    if (dom.editBookCoverInput) dom.editBookCoverInput.value = "";
+    if (dom.editRemoveCoverInput) dom.editRemoveCoverInput.checked = false;
+    revokePendingEditCoverObjectUrl();
+  });
   on(dom.editBookModal, "click", (e) => {
     if (e.target === dom.editBookModal) {
       dom.editBookModal.hidden = true;
       dom.editBookStatus.textContent = "";
       if (dom.editHiddenPagesSummary) dom.editHiddenPagesSummary.innerHTML = "";
+      if (dom.editBookCoverInput) dom.editBookCoverInput.value = "";
+      if (dom.editRemoveCoverInput) dom.editRemoveCoverInput.checked = false;
+      revokePendingEditCoverObjectUrl();
     }
   });
   on(dom.publishRestrictedAccessInput, "change", () => handleAssignmentToggle("publish", dom.publishRestrictedAccessInput.checked));

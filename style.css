@@ -1946,3 +1946,69 @@ body.focus-mode-active .text-page {
     justify-content: flex-start;
   }
 }
+
+
+/* Patch admin actions + cover edit + largeur standard */
+.admin-books-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.edit-cover-block {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 2px;
+}
+.edit-cover-preview-wrap {
+  display: flex;
+  align-items: start;
+}
+.edit-cover-preview {
+  width: 118px;
+  aspect-ratio: 2 / 3;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #e9eef5;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
+}
+.edit-cover-preview-image,
+.edit-cover-preview-placeholder {
+  width: 100%;
+  height: 100%;
+}
+.edit-cover-preview-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.edit-cover-preview-placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+  font-weight: 800;
+  color: #475569;
+  background: linear-gradient(180deg, #eff6ff 0%, #e2e8f0 100%);
+}
+.reading-surface:not(.narrow-layout) .text-viewer {
+  width: min(100%, 1180px);
+}
+.reading-surface:not(.narrow-layout) .text-page {
+  width: 100%;
+}
+.reading-surface:not(.narrow-layout) .text-content {
+  max-width: none;
+  width: 100%;
+}
+@media (max-width: 760px) {
+  .admin-books-tools {
+    align-items: stretch;
+  }
+  .edit-cover-preview {
+    width: 96px;
+  }
+  .reading-surface:not(.narrow-layout) .text-viewer {
+    width: 100%;
+  }
+}
