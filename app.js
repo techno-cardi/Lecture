@@ -84,9 +84,14 @@ const dom = {
   studentCheckBtn: document.getElementById("studentCheckBtn"),
   readingCheckModal: document.getElementById("readingCheckModal"),
   readingCheckCloseBtn: document.getElementById("readingCheckCloseBtn"),
+  readingCheckStudentTabBtn: document.getElementById("readingCheckStudentTabBtn"),
+  readingCheckOverviewTabBtn: document.getElementById("readingCheckOverviewTabBtn"),
   readingCheckSearchInput: document.getElementById("readingCheckSearchInput"),
   readingCheckSortSelect: document.getElementById("readingCheckSortSelect"),
+  readingCheckGlobalFilterField: document.getElementById("readingCheckGlobalFilterField"),
+  readingCheckGlobalFilterSelect: document.getElementById("readingCheckGlobalFilterSelect"),
   readingCheckStatus: document.getElementById("readingCheckStatus"),
+  readingCheckGlobalSummary: document.getElementById("readingCheckGlobalSummary"),
   readingCheckShowExternalInput: document.getElementById("readingCheckShowExternalInput"),
   readingCheckUserList: document.getElementById("readingCheckUserList"),
   readingCheckDetails: document.getElementById("readingCheckDetails"),
@@ -241,6 +246,11 @@ const state = {
   readingCheckBookFilters: [],
   readingCheckSortMode: "name",
   readingCheckShowExternal: false,
+  readingCheckViewMode: "student",
+  usersReadingOverviewData: null,
+  loadingUsersReadingOverview: false,
+  selectedReadingCheckOverviewEmail: "",
+  readingCheckGlobalFilterMode: "all",
   selectedBookReviewEmail: "",
   bookReviewData: null,
   loadingBookReviewId: "",
@@ -503,8 +513,13 @@ function resetAdminState() {
   state.publishAssignedEmails = [];
   state.editAssignedEmails = [];
   state.selectedReadingCheckEmail = "";
+  state.selectedReadingCheckOverviewEmail = "";
   state.readingCheckData = null;
+  state.usersReadingOverviewData = null;
   state.loadingReadingCheckEmail = "";
+  state.loadingUsersReadingOverview = false;
+  state.readingCheckViewMode = "student";
+  state.readingCheckGlobalFilterMode = "all";
   state.selectedBookReviewEmail = "";
   state.bookReviewData = null;
   state.loadingBookReviewId = "";
@@ -514,6 +529,7 @@ function resetAdminState() {
   state.bookReviewShowExternal = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
   if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = "name";
@@ -808,6 +824,8 @@ async function loadAssignableUsers(force = false) {
     renderAssignableUsers("publish");
     renderAssignableUsers("edit");
     renderReadingCheckUserList();
+    renderReadingCheckDetails();
+    renderReadingCheckGlobalSummary();
     return;
   }
   state.loadingAssignableUsers = true;
@@ -822,7 +840,11 @@ async function loadAssignableUsers(force = false) {
       email: normalizeEmail(user.email || ""),
       firstName: normalizePersonName(user.firstName || ""),
       lastName: normalizePersonName(user.lastName || ""),
-      isExternal: !isInternalCscapitaleEmail(user.email || ""),
+      hasProfile: !!(normalizePersonName(user.firstName || "") || normalizePersonName(user.lastName || "")),
+      createdAt: user.createdAt || "",
+      updatedAt: user.updatedAt || "",
+      lastConnectionAt: user.lastConnectionAt || "",
+      isExternal: user.isExternal !== undefined ? !!user.isExternal : !isInternalCscapitaleEmail(user.email || ""),
     })).filter((user) => user.email) : [];
     renderAssignableUsers("publish");
     renderAssignableUsers("edit");
@@ -857,36 +879,139 @@ function updateAssignmentSelection(kind, email, checked) {
   renderAssignableUsers(kind);
 }
 
+function parseDateMs(value) {
+  if (!value) return 0;
+  var date = new Date(value);
+  var time = date.getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function formatRelativeTimeFromNow(value) {
+  var ts = parseDateMs(value);
+  if (!ts) return "";
+  var deltaMinutes = Math.round((Date.now() - ts) / 60000);
+  if (deltaMinutes < 1) return "à l'instant";
+  if (deltaMinutes < 60) return 'il y a ' + deltaMinutes + ' min';
+  var deltaHours = Math.round(deltaMinutes / 60);
+  if (deltaHours < 24) return 'il y a ' + deltaHours + ' h';
+  var deltaDays = Math.round(deltaHours / 24);
+  if (deltaDays < 30) return 'il y a ' + deltaDays + ' j';
+  var deltaMonths = Math.round(deltaDays / 30);
+  if (deltaMonths < 12) return 'il y a ' + deltaMonths + ' mois';
+  var deltaYears = Math.round(deltaMonths / 12);
+  return 'il y a ' + deltaYears + ' an' + (deltaYears > 1 ? 's' : '');
+}
+
+function formatDateTimeWithRelative(value, emptyText = "Aucune donnée") {
+  if (!value) return emptyText;
+  var full = formatDateTime(value);
+  var relative = formatRelativeTimeFromNow(value);
+  return relative ? `${full} (${relative})` : full;
+}
+
+function setReadingCheckStatus(message = "", kind = "", showSpinner = false) {
+  if (!dom.readingCheckStatus) return;
+  dom.readingCheckStatus.className = `save-status reading-check-status${kind ? ` status-${kind}` : ""}`;
+  dom.readingCheckStatus.innerHTML = message ? `${showSpinner ? `<span class="inline-spinner" aria-hidden="true"></span>` : ""}<span>${escapeHtml(message)}</span>` : "";
+}
+
+function getReadingCheckStatusLabel(status) {
+  if (status === "completed") return "Terminé";
+  if (status === "started") return "Commencé";
+  return "Non lu";
+}
+
+function getReadingCheckStatusClass(status) {
+  if (status === "completed") return "published";
+  if (status === "started") return "status-started";
+  return "hidden";
+}
+
+function compareReadingCheckUsers(left, right, sortMode = "name") {
+  var leftHasProfile = !!(left?.hasProfile || hasStructuredReadingCheckName(left));
+  var rightHasProfile = !!(right?.hasProfile || hasStructuredReadingCheckName(right));
+  if (leftHasProfile !== rightHasProfile) return leftHasProfile ? -1 : 1;
+
+  if (sortMode === "connection") {
+    var rightConnection = parseDateMs(right?.lastConnectionAt || right?.lastAuthAt || "");
+    var leftConnection = parseDateMs(left?.lastConnectionAt || left?.lastAuthAt || "");
+    if (rightConnection !== leftConnection) return rightConnection - leftConnection;
+  }
+
+  if (sortMode === "activity") {
+    var rightActivity = parseDateMs(right?.lastActivityAt || right?.lastUpdated || right?.lastOpenedAt || right?.lastConnectionAt || "");
+    var leftActivity = parseDateMs(left?.lastActivityAt || left?.lastUpdated || left?.lastOpenedAt || left?.lastConnectionAt || "");
+    if (rightActivity !== leftActivity) return rightActivity - leftActivity;
+  }
+
+  if (sortMode === "email") {
+    return String(left?.email || "").localeCompare(String(right?.email || ""), "fr-CA");
+  }
+
+  var leftKey = `${String(left?.lastName || "").toLowerCase()}${String(left?.firstName || "").toLowerCase()}${String(left?.email || "").toLowerCase()}`;
+  var rightKey = `${String(right?.lastName || "").toLowerCase()}${String(right?.firstName || "").toLowerCase()}${String(right?.email || "").toLowerCase()}`;
+  return leftKey.localeCompare(rightKey, "fr-CA");
+}
+
+function updateReadingCheckModeUi() {
+  var isOverview = state.readingCheckViewMode === "overview";
+  if (dom.readingCheckStudentTabBtn) {
+    dom.readingCheckStudentTabBtn.classList.toggle("is-active", !isOverview);
+    dom.readingCheckStudentTabBtn.setAttribute("aria-selected", !isOverview ? "true" : "false");
+  }
+  if (dom.readingCheckOverviewTabBtn) {
+    dom.readingCheckOverviewTabBtn.classList.toggle("is-active", isOverview);
+    dom.readingCheckOverviewTabBtn.setAttribute("aria-selected", isOverview ? "true" : "false");
+  }
+  if (dom.readingCheckGlobalFilterField) dom.readingCheckGlobalFilterField.hidden = !isOverview;
+  if (dom.readingCheckGlobalSummary) dom.readingCheckGlobalSummary.hidden = !isOverview;
+}
+
 function getSortedReadingCheckUsers() {
-  const query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
-  const sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
-  const showExternal = !!dom.readingCheckShowExternalInput?.checked;
+  var query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
+  var sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
+  var showExternal = !!dom.readingCheckShowExternalInput?.checked;
   state.readingCheckSortMode = sortMode;
   state.readingCheckShowExternal = showExternal;
   return [...state.assignableUsers]
     .filter((user) => {
       if (!showExternal && user.isExternal) return false;
       if (!query) return true;
-      const haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
+      var haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
       return haystack.includes(query);
     })
-    .sort((left, right) => {
-      const leftKey = sortMode === "email"
-        ? left.email.toLowerCase()
-        : `${String(left.lastName || "").toLowerCase()}${String(left.firstName || "").toLowerCase()}${left.email.toLowerCase()}`;
-      const rightKey = sortMode === "email"
-        ? right.email.toLowerCase()
-        : `${String(right.lastName || "").toLowerCase()}${String(right.firstName || "").toLowerCase()}${right.email.toLowerCase()}`;
-      return leftKey.localeCompare(rightKey, "fr-CA");
-    });
+    .sort((left, right) => compareReadingCheckUsers(left, right, sortMode));
+}
+
+function getFilteredReadingCheckOverviewUsers() {
+  var payload = state.usersReadingOverviewData;
+  if (!payload?.users) return [];
+  var query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
+  var sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
+  var filterMode = dom.readingCheckGlobalFilterSelect?.value || state.readingCheckGlobalFilterMode || "all";
+  var showExternal = !!dom.readingCheckShowExternalInput?.checked;
+  state.readingCheckSortMode = sortMode;
+  state.readingCheckGlobalFilterMode = filterMode;
+  state.readingCheckShowExternal = showExternal;
+  return [...payload.users]
+    .filter((user) => {
+      if (!showExternal && user.isExternal) return false;
+      if (filterMode === "started" && !(user.status === "started" || user.status === "completed")) return false;
+      if (filterMode === "not_started" && user.status !== "not_started") return false;
+      if (filterMode === "completed" && user.status !== "completed") return false;
+      if (filterMode === "connected" && !user.lastConnectionAt) return false;
+      if (filterMode === "never_connected" && !!user.lastConnectionAt) return false;
+      if (!query) return true;
+      var haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
+      return haystack.includes(query);
+    })
+    .sort((left, right) => compareReadingCheckUsers(left, right, sortMode));
 }
 
 function getPendingReadingCheckUser() {
-  const selectedEmail = normalizeEmail(state.loadingReadingCheckEmail || state.selectedReadingCheckEmail);
+  var selectedEmail = normalizeEmail(state.loadingReadingCheckEmail || state.selectedReadingCheckEmail);
   if (!selectedEmail) return state.pendingReadingCheckUser || null;
-  return state.assignableUsers.find((user) => normalizeEmail(user.email) === selectedEmail)
-    || state.pendingReadingCheckUser
-    || null;
+  return state.assignableUsers.find((user) => normalizeEmail(user.email) === selectedEmail) || state.pendingReadingCheckUser || null;
 }
 
 function getReadingCheckBookKey(book, index) {
@@ -894,19 +1019,13 @@ function getReadingCheckBookKey(book, index) {
 }
 
 function getVisibleReadingCheckBooks(allBooks) {
-  const filters = new Set((Array.isArray(state.readingCheckBookFilters) ? state.readingCheckBookFilters : []).map(String));
+  var filters = new Set((Array.isArray(state.readingCheckBookFilters) ? state.readingCheckBookFilters : []).map(String));
   if (!filters.size) return allBooks;
   return allBooks.filter((book, index) => filters.has(getReadingCheckBookKey(book, index)));
 }
 
 function computeReadingCheckSummaryFromBooks(books) {
-  const summary = {
-    booksStarted: books.length,
-    totalBookmarks: 0,
-    totalNotes: 0,
-    totalReadingSeconds: 0,
-    totalSessions: 0,
-  };
+  var summary = { booksStarted: books.length, totalBookmarks: 0, totalNotes: 0, totalReadingSeconds: 0, totalSessions: 0 };
   books.forEach((book) => {
     summary.totalBookmarks += Array.isArray(book.bookmarks) ? book.bookmarks.length : 0;
     summary.totalNotes += Array.isArray(book.notes) ? book.notes.length : 0;
@@ -916,91 +1035,193 @@ function computeReadingCheckSummaryFromBooks(books) {
   return summary;
 }
 
+function renderReadingCheckGlobalSummary() {
+  if (!dom.readingCheckGlobalSummary) return;
+  var isOverview = state.readingCheckViewMode === "overview";
+  dom.readingCheckGlobalSummary.hidden = !isOverview;
+  if (!isOverview) {
+    dom.readingCheckGlobalSummary.innerHTML = "";
+    return;
+  }
+  var payload = state.usersReadingOverviewData;
+  if (state.loadingUsersReadingOverview && !payload?.summary) {
+    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargement…</div></div></div>`;
+    return;
+  }
+  if (!payload?.summary) {
+    dom.readingCheckGlobalSummary.innerHTML = "";
+    return;
+  }
+  var summary = payload.summary || {};
+  dom.readingCheckGlobalSummary.innerHTML = `
+    <div class="reading-check-summary reading-check-summary-wide">
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs</div><div class="reading-check-summary-value">${Number(summary.totalUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Ont commencé</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">N'ont pas lu</div><div class="reading-check-summary-value">${Number(summary.notStartedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Terminés</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Connectés</div><div class="reading-check-summary-value">${Number(summary.connectedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Jamais connectés</div><div class="reading-check-summary-value">${Number(summary.neverConnectedUsers) || 0}</div></div>
+    </div>`;
+}
+
+function renderReadingCheckOverviewUserList() {
+  if (!dom.readingCheckUserList) return;
+  if (state.loadingUsersReadingOverview && !state.usersReadingOverviewData?.users) {
+    dom.readingCheckUserList.innerHTML = `<div class="empty-state"><span class="inline-spinner" aria-hidden="true"></span><span>Vue globale en cours de chargement.</span></div>`;
+    return;
+  }
+  var users = getFilteredReadingCheckOverviewUsers();
+  if (!users.length) {
+    dom.readingCheckUserList.innerHTML = `<div class="empty-state">Aucun utilisateur ne correspond aux filtres.</div>`;
+    return;
+  }
+  dom.readingCheckUserList.innerHTML = users.map((user) => {
+    var active = state.selectedReadingCheckOverviewEmail === user.email;
+    return `
+      <button class="reading-check-user-btn reading-check-user-btn-rich${active ? " is-active" : ""}" type="button" data-reading-check-overview-email="${escapeHtml(user.email)}">
+        <span class="reading-check-user-name">${escapeHtml(getReadingCheckUserName(user))}</span>
+        <span class="reading-check-user-email">${escapeHtml(user.email)}</span>
+        <span class="reading-check-user-meta-line">
+          <span class="badge ${getReadingCheckStatusClass(user.status)}">${escapeHtml(getReadingCheckStatusLabel(user.status))}</span>
+          ${user.isExternal ? `<span class="badge hidden">Externe</span>` : ""}
+          ${!user.hasProfile ? `<span class="badge hidden">Nom manquant</span>` : ""}
+        </span>
+        <span class="reading-check-user-meta-line reading-check-user-meta-small">
+          <span>${escapeHtml(user.lastConnectionAt ? `Connexion: ${formatDateTime(user.lastConnectionAt)}` : "Jamais connecté")}</span>
+        </span>
+      </button>`;
+  }).join("");
+}
+
 function renderReadingCheckUserList() {
+  if (state.readingCheckViewMode === "overview") {
+    renderReadingCheckOverviewUserList();
+    return;
+  }
   if (!dom.readingCheckUserList) return;
   if (state.loadingAssignableUsers && !state.assignableUsers.length) {
     dom.readingCheckUserList.innerHTML = `<div class="empty-state"><span class="inline-spinner" aria-hidden="true"></span><span>Liste d'utilisateurs en cours de chargement.</span></div>`;
     return;
   }
-  const users = getSortedReadingCheckUsers();
+  var users = getSortedReadingCheckUsers();
   if (!users.length) {
     dom.readingCheckUserList.innerHTML = `<div class="empty-state">Aucun utilisateur trouvé.</div>`;
     return;
   }
   dom.readingCheckUserList.innerHTML = users.map((user) => {
-    const active = state.selectedReadingCheckEmail === user.email;
-    const displayName = getReadingCheckUserName(user);
-    const showEmail = !hasStructuredReadingCheckName(user);
+    var active = state.selectedReadingCheckEmail === user.email;
+    var displayName = getReadingCheckUserName(user);
+    var showEmail = !hasStructuredReadingCheckName(user);
     return `
       <button class="reading-check-user-btn${active ? " is-active" : ""}" type="button" data-reading-check-email="${escapeHtml(user.email)}">
         <span class="reading-check-user-name">${escapeHtml(displayName)}</span>
         ${showEmail ? `<span class="reading-check-user-email">${escapeHtml(user.email)}</span>` : ""}
+        ${!showEmail ? `<span class="reading-check-user-email">${escapeHtml(user.email)}</span>` : ""}
+        ${user.lastConnectionAt ? `<span class="reading-check-user-email">${escapeHtml(`Dernière connexion: ${formatDateTime(user.lastConnectionAt)}`)}</span>` : ""}
         ${user.isExternal ? `<span class="badge hidden reading-check-external-badge">Externe</span>` : ""}
-      </button>
-    `;
+      </button>`;
   }).join("");
 }
 
-function renderReadingCheckDetails() {
+function renderReadingCheckOverviewDetails() {
   if (!dom.readingCheckDetails) return;
-  const payload = state.readingCheckData;
-  const pendingUser = getPendingReadingCheckUser();
-  const payloadUser = payload?.user || null;
-  const selectedUser = payloadUser || pendingUser;
-  const isLoading = !!state.loadingReadingCheckEmail;
+  var payload = state.usersReadingOverviewData;
+  var users = getFilteredReadingCheckOverviewUsers();
+  var selected = users.find((user) => user.email === state.selectedReadingCheckOverviewEmail) || users[0] || null;
+  if (!selected) {
+    dom.readingCheckDetails.innerHTML = `<div class="empty-state">Aucune donnée globale disponible pour le moment.</div>`;
+    return;
+  }
+  state.selectedReadingCheckOverviewEmail = selected.email;
+  dom.readingCheckDetails.innerHTML = `
+    <div class="reading-check-user-heading">
+      <h4>${escapeHtml(getReadingCheckUserName(selected))}</h4>
+      <p>${escapeHtml(selected.email || "")}</p>
+    </div>
+    <div class="reading-check-summary">
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Statut</div><div class="reading-check-summary-value">${escapeHtml(getReadingCheckStatusLabel(selected.status))}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencés</div><div class="reading-check-summary-value">${Number(selected.booksStarted) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres terminés</div><div class="reading-check-summary-value">${Number(selected.booksCompleted) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selected.totalReadingSeconds))}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(selected.totalSessions) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selected.lastConnectionAt, "Jamais connecté"))}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selected.lastActivityAt))}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(selected.totalBookmarks) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(selected.totalNotes) || 0}</div></div>
+    </div>
+    <div class="reading-check-book-list">
+      <article class="reading-check-book-card">
+        <div class="reading-check-book-head">
+          <div>
+            <h5>Profil de l'utilisateur</h5>
+            <p>${selected.hasProfile ? "Nom et prénom complétés" : "Nom et prénom non complétés"}</p>
+          </div>
+          <div class="badge ${selected.hasProfile ? "published" : "hidden"}">${selected.hasProfile ? "Profil complet" : "Profil incomplet"}</div>
+        </div>
+        <div class="reading-check-book-stats">
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Créé le</div><div class="reading-check-stat-value">${escapeHtml(formatDateTimeWithRelative(selected.createdAt))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Profil modifié le</div><div class="reading-check-stat-value">${escapeHtml(formatDateTimeWithRelative(selected.profileUpdatedAt))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernier livre actif</div><div class="reading-check-stat-value">${escapeHtml(selected.latestBookTitle || "Aucune donnée")}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Type de compte</div><div class="reading-check-stat-value">${selected.isExternal ? "Externe" : "Interne"}</div></div>
+        </div>
+      </article>
+    </div>`;
+}
+
+function renderReadingCheckDetails() {
+  if (state.readingCheckViewMode === "overview") {
+    renderReadingCheckOverviewDetails();
+    return;
+  }
+  if (!dom.readingCheckDetails) return;
+  var payload = state.readingCheckData;
+  var pendingUser = getPendingReadingCheckUser();
+  var payloadUser = payload?.user || null;
+  var selectedUser = payloadUser || pendingUser;
+  var isLoading = !!state.loadingReadingCheckEmail;
 
   if (!selectedUser) {
     dom.readingCheckDetails.innerHTML = `<div class="empty-state">Sélectionne un élève pour consulter ses données de lecture.</div>`;
     return;
   }
 
-  const userName = getReadingCheckUserName(selectedUser);
-  const allBooks = Array.isArray(payload?.books) ? payload.books : [];
-  const filterOptions = allBooks.map((book, index) => ({
-    key: getReadingCheckBookKey(book, index),
-    label: String(book.title || book.bookId || `Livre ${index + 1}`),
-  }));
+  var userName = getReadingCheckUserName(selectedUser);
+  var allBooks = Array.isArray(payload?.books) ? payload.books : [];
+  var filterOptions = allBooks.map((book, index) => ({ key: getReadingCheckBookKey(book, index), label: String(book.title || book.bookId || `Livre ${index + 1}`) }));
   if (!Array.isArray(state.readingCheckBookFilters) || !state.readingCheckBookFilters.length) {
     state.readingCheckBookFilters = filterOptions.map((item) => item.key);
   } else {
-    const allowed = new Set(filterOptions.map((item) => item.key));
+    var allowed = new Set(filterOptions.map((item) => item.key));
     state.readingCheckBookFilters = state.readingCheckBookFilters.filter((key) => allowed.has(String(key)));
-    if (!state.readingCheckBookFilters.length && filterOptions.length) {
-      state.readingCheckBookFilters = filterOptions.map((item) => item.key);
-    }
+    if (!state.readingCheckBookFilters.length && filterOptions.length) state.readingCheckBookFilters = filterOptions.map((item) => item.key);
   }
 
-  const books = getVisibleReadingCheckBooks(allBooks);
-  const summary = computeReadingCheckSummaryFromBooks(books);
-  const filtersHtml = filterOptions.length > 1 ? `
+  var books = getVisibleReadingCheckBooks(allBooks);
+  var summary = computeReadingCheckSummaryFromBooks(books);
+  var filtersHtml = filterOptions.length > 1 ? `
     <div class="reading-check-book-filter-block">
       <div class="reading-check-book-filter-title">Livres à afficher dans les statistiques</div>
       <div class="reading-check-book-filter-list">
         ${filterOptions.map((item) => {
-          const checked = state.readingCheckBookFilters.includes(item.key);
+          var checked = state.readingCheckBookFilters.includes(item.key);
           return `<label class="reading-check-book-filter-item"><input type="checkbox" data-reading-check-book-filter="${escapeHtml(item.key)}" ${checked ? "checked" : ""}><span>${escapeHtml(item.label)}</span></label>`;
         }).join("")}
       </div>
     </div>` : "";
 
-  const bookCards = books.length ? books.map((book) => {
-    const bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks : [];
-    const notes = Array.isArray(book.notes) ? book.notes : [];
-    const bookmarkHtml = bookmarks.length
-      ? `<div class="reading-check-chip-list">${bookmarks.map((bookmark) => {
-          const page = Number(bookmark.page) || 0;
-          const label = String(bookmark.label || "").trim();
-          return `<div class="reading-check-chip">${label ? `<strong>${escapeHtml(label)}</strong>` : "<strong>Signet</strong>"}<span>Page ${page}</span></div>`;
-        }).join("")}</div>`
-      : `<div class="empty-state">Aucun signet enregistré.</div>`;
-    const notesHtml = notes.length
-      ? `<div class="reading-check-note-list">${notes.map((note) => `
-          <div class="reading-check-note">
-            <div class="reading-check-note-meta">Page ${Number(note.page) || 0}${note.updatedAt ? ` - ${escapeHtml(formatDateTime(note.updatedAt))}` : ""}</div>
-            <div class="reading-check-note-text">${escapeHtml(note.noteText || "")}</div>
-          </div>
-        `).join("")}</div>`
-      : `<div class="empty-state">Aucune note enregistrée.</div>`;
+  var bookCards = books.length ? books.map((book) => {
+    var bookmarks = Array.isArray(book.bookmarks) ? book.bookmarks : [];
+    var notes = Array.isArray(book.notes) ? book.notes : [];
+    var bookmarkHtml = bookmarks.length ? `<div class="reading-check-chip-list">${bookmarks.map((bookmark) => {
+      var page = Number(bookmark.page) || 0;
+      var label = String(bookmark.label || "").trim();
+      return `<div class="reading-check-chip">${label ? `<strong>${escapeHtml(label)}</strong>` : "<strong>Signet</strong>"}<span>Page ${page}</span></div>`;
+    }).join("")}</div>` : `<div class="empty-state">Aucun signet enregistré.</div>`;
+    var notesHtml = notes.length ? `<div class="reading-check-note-list">${notes.map((note) => `
+      <div class="reading-check-note">
+        <div class="reading-check-note-meta">Page ${Number(note.page) || 0}${note.updatedAt ? ` - ${escapeHtml(formatDateTime(note.updatedAt))}` : ""}</div>
+        <div class="reading-check-note-text">${escapeHtml(note.noteText || "")}</div>
+      </div>`).join("")}</div>` : `<div class="empty-state">Aucune note enregistrée.</div>`;
     return `
       <article class="reading-check-book-card">
         <div class="reading-check-book-head">
@@ -1036,8 +1257,7 @@ function renderReadingCheckDetails() {
             ${notesHtml}
           </section>
         </div>
-      </article>
-    `;
+      </article>`;
   }).join("") : `<div class="empty-state">Aucune activité de lecture enregistrée pour cet élève.</div>`;
 
   dom.readingCheckDetails.innerHTML = `
@@ -1047,58 +1267,111 @@ function renderReadingCheckDetails() {
           <h4>${escapeHtml(userName)}</h4>
           <p>${escapeHtml(selectedUser.email || "")}</p>
         </div>
-        ${filtersHtml}
         <div class="reading-check-summary">
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Statut</div><div class="reading-check-summary-value">${escapeHtml(getReadingCheckStatusLabel(selectedUser.status || "not_started"))}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selectedUser.lastConnectionAt, "Jamais connecté"))}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selectedUser.lastActivityAt))}</div></div>
           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres avec activité</div><div class="reading-check-summary-value">${Number(summary.booksStarted) || 0}</div></div>
-          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(summary.totalBookmarks) || 0}</div></div>
-          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(summary.totalNotes) || 0}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres terminés</div><div class="reading-check-summary-value">${Number(selectedUser.booksCompleted) || 0}</div></div>
           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(summary.totalReadingSeconds))}</div></div>
           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(summary.totalNotes) || 0}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(summary.totalBookmarks) || 0}</div></div>
         </div>
+        ${filtersHtml}
         <div class="reading-check-book-list">${bookCards}</div>
       </div>
       ${isLoading ? `<div class="reading-check-overlay"><div class="reading-check-overlay-card"><span class="inline-spinner" aria-hidden="true"></span><span>Chargement des données en cours…</span></div></div>` : ''}
-    </div>
-  `;
+    </div>`;
 }
 
 async function loadStudentReadingOverview(targetEmail) {
-  const email = normalizeEmail(targetEmail);
+  var email = normalizeEmail(targetEmail);
   if (!email || !state.adminUnlocked || !canSeeAdminPanel()) return;
   state.selectedReadingCheckEmail = email;
   state.loadingReadingCheckEmail = email;
   state.pendingReadingCheckUser = state.assignableUsers.find((user) => normalizeEmail(user.email) === email) || { email };
   renderReadingCheckUserList();
   renderReadingCheckDetails();
-  if (dom.readingCheckStatus) {
-    dom.readingCheckStatus.className = "save-status reading-check-status";
-    dom.readingCheckStatus.textContent = "";
-  }
+  setReadingCheckStatus("");
   try {
-    const response = await jsonp("getStudentReadingOverview", {
-      email: state.email,
-      adminCode: state.adminCode,
-      targetEmail: email,
-    });
+    var response = await jsonp("getStudentReadingOverview", { email: state.email, adminCode: state.adminCode, targetEmail: email });
     if (!response?.ok) throw new Error(response?.message || "Impossible de charger les données de lecture.");
     state.readingCheckData = response;
     state.pendingReadingCheckUser = response.user || state.pendingReadingCheckUser;
-    const books = Array.isArray(response.books) ? response.books : [];
+    var books = Array.isArray(response.books) ? response.books : [];
     state.readingCheckBookFilters = books.map((book, index) => getReadingCheckBookKey(book, index));
     renderReadingCheckDetails();
   } catch (error) {
     console.error(error);
     state.readingCheckData = null;
     renderReadingCheckDetails();
-    if (dom.readingCheckStatus) {
-      dom.readingCheckStatus.className = "save-status reading-check-status status-error";
-      dom.readingCheckStatus.textContent = error.message || "Erreur lors du chargement.";
-    }
+    setReadingCheckStatus(error.message || "Erreur lors du chargement.", "error");
   } finally {
     state.loadingReadingCheckEmail = "";
     renderReadingCheckUserList();
     renderReadingCheckDetails();
   }
+}
+
+async function loadUsersReadingOverview(force = false) {
+  if (!state.adminUnlocked || !canSeeAdminPanel()) return;
+  if (!force && state.usersReadingOverviewData?.users?.length) {
+    renderReadingCheckGlobalSummary();
+    renderReadingCheckUserList();
+    renderReadingCheckDetails();
+    return;
+  }
+  state.loadingUsersReadingOverview = true;
+  renderReadingCheckGlobalSummary();
+  renderReadingCheckUserList();
+  renderReadingCheckDetails();
+  setReadingCheckStatus("Chargement de la vue globale…", "", true);
+  try {
+    var response = await jsonp("getUsersReadingOverview", { email: state.email, adminCode: state.adminCode });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger la vue globale.");
+    state.usersReadingOverviewData = response;
+    var firstUser = getFilteredReadingCheckOverviewUsers()[0] || (Array.isArray(response.users) ? response.users[0] : null);
+    state.selectedReadingCheckOverviewEmail = state.selectedReadingCheckOverviewEmail || (firstUser ? firstUser.email : "");
+    setReadingCheckStatus("");
+  } catch (error) {
+    console.error(error);
+    state.usersReadingOverviewData = null;
+    state.selectedReadingCheckOverviewEmail = "";
+    setReadingCheckStatus(error.message || "Erreur lors du chargement.", "error");
+  } finally {
+    state.loadingUsersReadingOverview = false;
+    renderReadingCheckGlobalSummary();
+    renderReadingCheckUserList();
+    renderReadingCheckDetails();
+  }
+}
+
+function setReadingCheckViewMode(mode) {
+  state.readingCheckViewMode = mode === "overview" ? "overview" : "student";
+  updateReadingCheckModeUi();
+  renderReadingCheckGlobalSummary();
+  renderReadingCheckUserList();
+  renderReadingCheckDetails();
+  if (state.readingCheckViewMode === "overview" && !state.usersReadingOverviewData && !state.loadingUsersReadingOverview) {
+    void loadUsersReadingOverview(true);
+  }
+}
+
+function refreshReadingCheckAfterFilterChange() {
+  if (state.readingCheckViewMode === "overview") {
+    var firstOverviewUser = getFilteredReadingCheckOverviewUsers()[0] || null;
+    if (state.selectedReadingCheckOverviewEmail && !getFilteredReadingCheckOverviewUsers().some((user) => user.email === state.selectedReadingCheckOverviewEmail)) {
+      state.selectedReadingCheckOverviewEmail = firstOverviewUser ? firstOverviewUser.email : "";
+    }
+    if (!state.selectedReadingCheckOverviewEmail && firstOverviewUser) state.selectedReadingCheckOverviewEmail = firstOverviewUser.email;
+  } else {
+    var firstStudentUser = getSortedReadingCheckUsers()[0] || null;
+    if (!state.selectedReadingCheckEmail && firstStudentUser) state.selectedReadingCheckEmail = firstStudentUser.email;
+  }
+  renderReadingCheckGlobalSummary();
+  renderReadingCheckUserList();
+  renderReadingCheckDetails();
 }
 
 async function openReadingCheckModal() {
@@ -1110,21 +1383,24 @@ async function openReadingCheckModal() {
   dom.readingCheckModal.hidden = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   state.readingCheckSortMode = "name";
   state.readingCheckShowExternal = false;
+  state.readingCheckGlobalFilterMode = "all";
   state.readingCheckData = null;
+  state.usersReadingOverviewData = null;
   state.pendingReadingCheckUser = null;
   state.selectedReadingCheckEmail = "";
+  state.selectedReadingCheckOverviewEmail = "";
   state.loadingReadingCheckEmail = "";
+  state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
   state.loadingAssignableUsers = true;
+  setReadingCheckStatus("");
+  setReadingCheckViewMode("student");
   renderReadingCheckUserList();
   renderReadingCheckDetails();
-  if (dom.readingCheckStatus) {
-    dom.readingCheckStatus.className = "save-status reading-check-status";
-    dom.readingCheckStatus.textContent = "";
-  }
   void loadAssignableUsers(true);
 }
 
@@ -1133,11 +1409,12 @@ function closeReadingCheckModal() {
   dom.readingCheckModal.hidden = true;
   state.pendingReadingCheckUser = null;
   state.loadingReadingCheckEmail = "";
+  state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
-  if (dom.readingCheckStatus) {
-    dom.readingCheckStatus.textContent = "";
-    dom.readingCheckStatus.className = "save-status reading-check-status";
-  }
+  state.readingCheckViewMode = "student";
+  if (dom.readingCheckGlobalSummary) dom.readingCheckGlobalSummary.innerHTML = "";
+  setReadingCheckStatus("");
+  updateReadingCheckModeUi();
 }
 
 function renderBookReviewSummary() {
@@ -2566,169 +2843,40 @@ function normalizeLineText(parts) {
     .trim();
 }
 
-function isCenteredTextBlock(text = "") {
-  return /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
-}
-
-function looksLikeContinuationStart(text = "") {
-  return /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(text)
-    || /^(de|du|des|la|le|les|un|une|et|ou|où|que|qui|dont|mais|car|or|ni|donc|pour|par|sur|sous|dans|avec|sans|ce|cet|cette|ces|sa|son|ses|leur|leurs|au|aux|à|en)\b/i.test(text);
-}
-
-function stripHtmlToText(html = "") {
-  return String(html || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parseStructuredBlocksFromHtml(html = "") {
-  const blocks = [];
-  const source = String(html || "");
-  const paragraphPattern = /<p(?:\s+class="([^"]*)")?>([\s\S]*?)<\/p>/gi;
-  let match = null;
-  while ((match = paragraphPattern.exec(source))) {
-    const className = String(match[1] || "");
-    const text = stripHtmlToText(match[2]);
-    if (!text) continue;
-    blocks.push({
-      type: /\bdialogue\b/.test(className) ? "dialogue" : (/\bcentered\b/.test(className) ? "centered" : "paragraph"),
-      text,
-    });
-  }
-  return blocks;
-}
-
-function renderStructuredBlocksHtml(blocks = []) {
-  return (Array.isArray(blocks) ? blocks : []).map((block) => {
-    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
-    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
-    return `<p class="book-paragraph">${escapeHtml(block.text)}</p>`;
-  }).join("");
-}
-
-function finalizeStructuredBlocks(blocks = [], fallbackText = "") {
-  const filteredBlocks = (Array.isArray(blocks) ? blocks : []).filter((block) => String(block?.text || "").trim());
-  const plainText = filteredBlocks.map((block) => String(block.text || "").trim()).join("\n\n").trim();
-  const charCount = plainText.replace(/\s+/g, "").length;
-  if (!filteredBlocks.length || charCount < 18) {
-    return { html: "", text: plainText || String(fallbackText || ""), charCount, renderMode: "pdf" };
-  }
-  return { html: renderStructuredBlocksHtml(filteredBlocks), text: plainText, charCount, renderMode: "text" };
-}
-
-function shouldStartNewParagraphFromLines(previousLine = "", currentLine = "", paragraphText = "", paragraphLineCount = 0) {
-  const prev = String(previousLine || "").trim();
-  const current = String(currentLine || "").trim();
-  const paragraph = String(paragraphText || "").trim();
-  if (!prev || !current) return false;
-  if (looksLikeContinuationStart(current)) return false;
-  if (!/[.!?…»”"]$/.test(prev)) return false;
-  if (!/^[«"(\[]?[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]/.test(current)) return false;
-  const paragraphLength = paragraph.replace(/\s+/g, " ").length;
-  if (paragraphLineCount >= 3 && paragraphLength >= 90) return true;
-  if (paragraphLineCount >= 2 && paragraphLength >= 120 && current.length >= 28) return true;
-  if (paragraphLength >= 170 && current.length >= 40) return true;
-  return false;
-}
-
-function rebuildStructuredPageFromLineBlocks(lineBlocks = [], fallbackText = "") {
-  const blocks = [];
-  let paragraphLines = [];
-  const pushParagraph = () => {
-    if (!paragraphLines.length) return;
-    blocks.push({
-      type: "paragraph",
-      text: paragraphLines.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim(),
-    });
-    paragraphLines = [];
-  };
-
-  for (const lineBlock of Array.isArray(lineBlocks) ? lineBlocks : []) {
-    const type = String(lineBlock?.type || "paragraph");
-    const text = String(lineBlock?.text || "").trim();
-    if (!text) continue;
-    if (lineBlock?.forceBreakBefore) pushParagraph();
-
-    if (type === "dialogue") {
-      pushParagraph();
-      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
-      continue;
-    }
-
-    if (type === "centered") {
-      pushParagraph();
-      blocks.push({ type: "centered", text });
-      continue;
-    }
-
-    const lastBlock = blocks[blocks.length - 1] || null;
-    if (!paragraphLines.length && lastBlock && lastBlock.type === "dialogue" && !/[.!?…»”"]$/.test(lastBlock.text)) {
-      lastBlock.text = `${lastBlock.text} ${text}`.replace(/\s+([,.;:!?])/g, "$1").trim();
-      continue;
-    }
-
-    if (paragraphLines.length) {
-      const previousLine = paragraphLines[paragraphLines.length - 1];
-      const paragraphText = paragraphLines.join(" ");
-      if (shouldStartNewParagraphFromLines(previousLine, text, paragraphText, paragraphLines.length)) {
-        pushParagraph();
-      }
-    }
-    paragraphLines.push(text);
-  }
-
-  pushParagraph();
-  return finalizeStructuredBlocks(blocks, fallbackText);
-}
-
-function looksPoorlyReflowedBlockSequence(blocks = []) {
-  const proseBlocks = (Array.isArray(blocks) ? blocks : []).filter((block) => String(block?.type || "paragraph") === "paragraph");
-  if (proseBlocks.length < 4) return false;
-  const texts = proseBlocks.map((block) => String(block.text || "").trim()).filter(Boolean);
-  if (texts.length < 4) return false;
-  const shortBlocks = texts.filter((text) => text.length < 95).length;
-  const weakEndings = texts.filter((text) => !/[.!?…»”"]$/.test(text)).length;
-  const continuationStarts = texts.filter((text) => looksLikeContinuationStart(text)).length;
-  const tinyBlocks = texts.filter((text) => text.length <= 24).length;
-  return shortBlocks >= Math.max(3, Math.ceil(texts.length * 0.55))
-    && (weakEndings >= Math.max(2, Math.ceil(texts.length * 0.3)) || continuationStarts >= 2 || tinyBlocks >= 1);
-}
-
-function normalizeRenderableTextPage(page = null) {
-  if (!page || page.renderMode === "pdf") return page;
-  const htmlBlocks = parseStructuredBlocksFromHtml(page.html || "");
-  if (!htmlBlocks.length) return page;
-  if (!looksPoorlyReflowedBlockSequence(htmlBlocks)) {
-    return {
-      renderMode: "text",
-      html: renderStructuredBlocksHtml(htmlBlocks),
-      text: htmlBlocks.map((block) => block.text).join("\n\n"),
-    };
-  }
-  return rebuildStructuredPageFromLineBlocks(htmlBlocks, page.text || "");
-}
-
 function buildStructuredPageFromPlainText(rawText = "") {
   const source = String(rawText || "")
-    .replace(/\r/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   if (!source || source.replace(/\s+/g, "").length < 18) {
     return { html: "", text: "", charCount: 0, renderMode: "pdf" };
   }
-  const lineBlocks = source.split(/\n/).map((line) => String(line || "").trim()).filter(Boolean).map((line) => {
-    if (/^[-–—]\s*/.test(line)) return { type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") };
-    if (isCenteredTextBlock(line)) return { type: "centered", text: line };
-    return { type: "paragraph", text: line };
-  });
-  return rebuildStructuredPageFromLineBlocks(lineBlocks, source);
+  const lines = source.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const blocks = [];
+  let buffer = [];
+  const pushBuffer = () => {
+    if (!buffer.length) return;
+    blocks.push({ type: "paragraph", text: buffer.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
+    buffer = [];
+  };
+  for (const line of lines) {
+    const isDialogue = /^[-–—]\s*/.test(line);
+    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(line) && line.length <= 60;
+    if (isDialogue) { pushBuffer(); blocks.push({ type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") }); continue; }
+    if (isCentered) { pushBuffer(); blocks.push({ type: "centered", text: line }); continue; }
+    if (buffer.length) {
+      const prev = buffer[buffer.length - 1];
+      const prevEnds = /[.!?…:]$/.test(prev);
+      if (/^[«"A-ZÉÈÀÂÊÎÔÛÇ]/.test(line) && prevEnds && line.length > 30) pushBuffer();
+    }
+    buffer.push(line);
+  }
+  pushBuffer();
+  if (!blocks.length) return { html: "", text: source, charCount: source.length, renderMode: "pdf" };
+  const html = blocks.map((b) => {
+    if (b.type === "dialogue") return `<p class="dialogue">${escapeHtml(b.text)}</p>`;
+    if (b.type === "centered") return `<p class="centered">${escapeHtml(b.text)}</p>`;
+    return `<p>${escapeHtml(b.text)}</p>`;
+  }).join("");
+  return { html, text: blocks.map((b) => b.text).join("\n\n"), charCount: source.replace(/\s+/g, "").length, renderMode: "text" };
 }
 
 function getRenderableTextPage(pageNumber) {
@@ -2736,8 +2884,8 @@ function getRenderableTextPage(pageNumber) {
   const page = state.textDoc?.pages?.[sourcePageNumber - 1];
   if (!page) return null;
   if (page.renderMode === "pdf") return { renderMode: "pdf" };
-  const structuredPage = page.html ? { renderMode: "text", html: page.html, text: page.text || "" } : buildStructuredPageFromPlainText(page.text || "");
-  return normalizeRenderableTextPage(structuredPage);
+  if (page.html) return { renderMode: "text", html: page.html, text: page.text || "" };
+  return buildStructuredPageFromPlainText(page.text || "");
 }
 
 async function renderTextPage(pageNumber) {
@@ -3490,25 +3638,48 @@ function extractStructuredPage(items) {
   const leftVals = filteredLines.map((line) => line.left).sort((a, b) => a - b);
   const baseLeft = leftVals[Math.floor(leftVals.length * 0.2)] || 0;
 
-  const lineBlocks = [];
+  const blocks = [];
+  let paragraph = [];
   let prevLine = null;
+  const pushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push({ type: "paragraph", text: paragraph.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
+    paragraph = [];
+  };
+
   for (const line of filteredLines) {
-    const text = String(line.text || "").trim();
-    if (!text) continue;
+    const text = line.text;
+    const isDialogue = /^[-–—]\s*/.test(text);
+    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
     const indent = line.left - baseLeft;
     const gap = prevLine ? Math.abs((Number(prevLine?.bottom ?? prevLine?.y ?? 0)) - (Number(line?.top ?? line?.y ?? 0))) : 0;
     const strongBreak = prevLine && gap > Math.max(avgH * 2.05, 22);
-    const indentBreak = prevLine && indent > Math.max(avgH * 1.85, 24) && gap > Math.max(avgH * 0.65, 8);
+    const indentBreak = indent > Math.max(avgH * 1.85, 24);
 
-    lineBlocks.push({
-      type: /^[-–—]\s*/.test(text) ? "dialogue" : (isCenteredTextBlock(text) ? "centered" : "paragraph"),
-      text: /^[-–—]\s*/.test(text) ? text.replace(/^[-–—]\s*/, "- ") : text,
-      forceBreakBefore: !!(strongBreak || indentBreak),
-    });
+    if (isDialogue) {
+      pushParagraph();
+      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
+    } else if (isCentered) {
+      pushParagraph();
+      blocks.push({ type: "centered", text });
+    } else {
+      if (strongBreak || indentBreak) pushParagraph();
+      paragraph.push(text);
+    }
     prevLine = line;
   }
+  pushParagraph();
 
-  return rebuildStructuredPageFromLineBlocks(lineBlocks);
+  const plainText = blocks.map((block) => block.text).join("\n\n").trim();
+  const charCount = plainText.replace(/\s+/g, "").length;
+  if (!blocks.length || charCount < 18) return { html: "", text: plainText, charCount, renderMode: "pdf" };
+
+  const html = blocks.map((block) => {
+    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
+    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
+    return `<p>${escapeHtml(block.text)}</p>`;
+  }).join("");
+  return { html, text: plainText, charCount, renderMode: "text" };
 }
 
 async function convertPdfFileToJson(file, metadata) {
@@ -4281,10 +4452,13 @@ function attachEvents() {
   on(dom.addUsersBtn, "click", addUsersInBulk);
   on(dom.studentCheckBtn, "click", openReadingCheckModal);
   on(dom.readingCheckCloseBtn, "click", closeReadingCheckModal);
+  on(dom.readingCheckStudentTabBtn, "click", () => setReadingCheckViewMode("student"));
+  on(dom.readingCheckOverviewTabBtn, "click", () => setReadingCheckViewMode("overview"));
   on(dom.readingCheckModal, "click", (e) => { if (e.target === dom.readingCheckModal) closeReadingCheckModal(); });
-  on(dom.readingCheckSearchInput, "input", renderReadingCheckUserList);
-  on(dom.readingCheckSortSelect, "change", renderReadingCheckUserList);
-  on(dom.readingCheckShowExternalInput, "change", renderReadingCheckUserList);
+  on(dom.readingCheckSearchInput, "input", refreshReadingCheckAfterFilterChange);
+  on(dom.readingCheckSortSelect, "change", refreshReadingCheckAfterFilterChange);
+  on(dom.readingCheckGlobalFilterSelect, "change", refreshReadingCheckAfterFilterChange);
+  on(dom.readingCheckShowExternalInput, "change", refreshReadingCheckAfterFilterChange);
   on(dom.readingCheckDetails, "change", (e) => {
     const input = e.target.closest("[data-reading-check-book-filter]");
     if (!input) return;
@@ -4296,6 +4470,13 @@ function attachEvents() {
     renderReadingCheckDetails();
   });
   on(dom.readingCheckUserList, "click", (e) => {
+    const overviewBtn = e.target.closest("[data-reading-check-overview-email]");
+    if (overviewBtn) {
+      state.selectedReadingCheckOverviewEmail = overviewBtn.dataset.readingCheckOverviewEmail;
+      renderReadingCheckUserList();
+      renderReadingCheckDetails();
+      return;
+    }
     const btn = e.target.closest("[data-reading-check-email]");
     if (!btn) return;
     void loadStudentReadingOverview(btn.dataset.readingCheckEmail);

@@ -251,10 +251,14 @@
       <div class="font-modal-panel reading-check-modal-panel">
         <div class="reading-check-header">
           <div>
-            <div class="font-modal-title">Vérification de la lecture d'un élève</div>
-            <p class="admin-help modal-help">Sélectionne un élève pour consulter sa progression, ses signets et ses notes.</p>
+            <div class="font-modal-title">Vérification de la lecture</div>
+            <p class="admin-help modal-help">Consulte le détail d'un élève ou une vue globale des utilisateurs et de leur activité.</p>
           </div>
           <button id="readingCheckCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+        </div>
+        <div class="reading-check-tabs" role="tablist" aria-label="Affichages du suivi de lecture">
+          <button id="readingCheckStudentTabBtn" class="reading-check-tab-btn is-active" type="button" role="tab" aria-selected="true">Par utilisateur</button>
+          <button id="readingCheckOverviewTabBtn" class="reading-check-tab-btn" type="button" role="tab" aria-selected="false">Vue globale</button>
         </div>
         <div class="reading-check-toolbar">
           <label class="reading-check-field" for="readingCheckSearchInput">
@@ -266,6 +270,19 @@
             <select id="readingCheckSortSelect">
               <option value="name">Nom, prénom</option>
               <option value="email">Adresse courriel</option>
+              <option value="connection">Dernière connexion</option>
+              <option value="activity">Dernière activité</option>
+            </select>
+          </label>
+          <label id="readingCheckGlobalFilterField" class="reading-check-field reading-check-sort-field" for="readingCheckGlobalFilterSelect" hidden>
+            <span>Filtrer</span>
+            <select id="readingCheckGlobalFilterSelect">
+              <option value="all">Tous les utilisateurs</option>
+              <option value="started">Ont commencé</option>
+              <option value="not_started">N'ont pas lu</option>
+              <option value="completed">Ont terminé</option>
+              <option value="connected">Se sont connectés</option>
+              <option value="never_connected">Jamais connectés</option>
             </select>
           </label>
           <label class="checkbox-label reading-check-toggle">
@@ -274,6 +291,7 @@
           </label>
         </div>
         <div id="readingCheckStatus" class="save-status"></div>
+        <div id="readingCheckGlobalSummary" class="reading-check-global-summary" hidden></div>
         <div class="reading-check-layout">
           <aside class="reading-check-users-pane">
             <div id="readingCheckUserList" class="reading-check-user-list"></div>
