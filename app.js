@@ -2566,40 +2566,169 @@ function normalizeLineText(parts) {
     .trim();
 }
 
+function isCenteredTextBlock(text = "") {
+  return /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
+}
+
+function looksLikeContinuationStart(text = "") {
+  return /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(text)
+    || /^(de|du|des|la|le|les|un|une|et|ou|où|que|qui|dont|mais|car|or|ni|donc|pour|par|sur|sous|dans|avec|sans|ce|cet|cette|ces|sa|son|ses|leur|leurs|au|aux|à|en)\b/i.test(text);
+}
+
+function stripHtmlToText(html = "") {
+  return String(html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseStructuredBlocksFromHtml(html = "") {
+  const blocks = [];
+  const source = String(html || "");
+  const paragraphPattern = /<p(?:\s+class="([^"]*)")?>([\s\S]*?)<\/p>/gi;
+  let match = null;
+  while ((match = paragraphPattern.exec(source))) {
+    const className = String(match[1] || "");
+    const text = stripHtmlToText(match[2]);
+    if (!text) continue;
+    blocks.push({
+      type: /\bdialogue\b/.test(className) ? "dialogue" : (/\bcentered\b/.test(className) ? "centered" : "paragraph"),
+      text,
+    });
+  }
+  return blocks;
+}
+
+function renderStructuredBlocksHtml(blocks = []) {
+  return (Array.isArray(blocks) ? blocks : []).map((block) => {
+    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
+    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
+    return `<p class="book-paragraph">${escapeHtml(block.text)}</p>`;
+  }).join("");
+}
+
+function finalizeStructuredBlocks(blocks = [], fallbackText = "") {
+  const filteredBlocks = (Array.isArray(blocks) ? blocks : []).filter((block) => String(block?.text || "").trim());
+  const plainText = filteredBlocks.map((block) => String(block.text || "").trim()).join("\n\n").trim();
+  const charCount = plainText.replace(/\s+/g, "").length;
+  if (!filteredBlocks.length || charCount < 18) {
+    return { html: "", text: plainText || String(fallbackText || ""), charCount, renderMode: "pdf" };
+  }
+  return { html: renderStructuredBlocksHtml(filteredBlocks), text: plainText, charCount, renderMode: "text" };
+}
+
+function shouldStartNewParagraphFromLines(previousLine = "", currentLine = "", paragraphText = "", paragraphLineCount = 0) {
+  const prev = String(previousLine || "").trim();
+  const current = String(currentLine || "").trim();
+  const paragraph = String(paragraphText || "").trim();
+  if (!prev || !current) return false;
+  if (looksLikeContinuationStart(current)) return false;
+  if (!/[.!?…»”"]$/.test(prev)) return false;
+  if (!/^[«"(\[]?[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]/.test(current)) return false;
+  const paragraphLength = paragraph.replace(/\s+/g, " ").length;
+  if (paragraphLineCount >= 3 && paragraphLength >= 90) return true;
+  if (paragraphLineCount >= 2 && paragraphLength >= 120 && current.length >= 28) return true;
+  if (paragraphLength >= 170 && current.length >= 40) return true;
+  return false;
+}
+
+function rebuildStructuredPageFromLineBlocks(lineBlocks = [], fallbackText = "") {
+  const blocks = [];
+  let paragraphLines = [];
+  const pushParagraph = () => {
+    if (!paragraphLines.length) return;
+    blocks.push({
+      type: "paragraph",
+      text: paragraphLines.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim(),
+    });
+    paragraphLines = [];
+  };
+
+  for (const lineBlock of Array.isArray(lineBlocks) ? lineBlocks : []) {
+    const type = String(lineBlock?.type || "paragraph");
+    const text = String(lineBlock?.text || "").trim();
+    if (!text) continue;
+    if (lineBlock?.forceBreakBefore) pushParagraph();
+
+    if (type === "dialogue") {
+      pushParagraph();
+      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
+      continue;
+    }
+
+    if (type === "centered") {
+      pushParagraph();
+      blocks.push({ type: "centered", text });
+      continue;
+    }
+
+    const lastBlock = blocks[blocks.length - 1] || null;
+    if (!paragraphLines.length && lastBlock && lastBlock.type === "dialogue" && !/[.!?…»”"]$/.test(lastBlock.text)) {
+      lastBlock.text = `${lastBlock.text} ${text}`.replace(/\s+([,.;:!?])/g, "$1").trim();
+      continue;
+    }
+
+    if (paragraphLines.length) {
+      const previousLine = paragraphLines[paragraphLines.length - 1];
+      const paragraphText = paragraphLines.join(" ");
+      if (shouldStartNewParagraphFromLines(previousLine, text, paragraphText, paragraphLines.length)) {
+        pushParagraph();
+      }
+    }
+    paragraphLines.push(text);
+  }
+
+  pushParagraph();
+  return finalizeStructuredBlocks(blocks, fallbackText);
+}
+
+function looksPoorlyReflowedBlockSequence(blocks = []) {
+  const proseBlocks = (Array.isArray(blocks) ? blocks : []).filter((block) => String(block?.type || "paragraph") === "paragraph");
+  if (proseBlocks.length < 4) return false;
+  const texts = proseBlocks.map((block) => String(block.text || "").trim()).filter(Boolean);
+  if (texts.length < 4) return false;
+  const shortBlocks = texts.filter((text) => text.length < 95).length;
+  const weakEndings = texts.filter((text) => !/[.!?…»”"]$/.test(text)).length;
+  const continuationStarts = texts.filter((text) => looksLikeContinuationStart(text)).length;
+  const tinyBlocks = texts.filter((text) => text.length <= 24).length;
+  return shortBlocks >= Math.max(3, Math.ceil(texts.length * 0.55))
+    && (weakEndings >= Math.max(2, Math.ceil(texts.length * 0.3)) || continuationStarts >= 2 || tinyBlocks >= 1);
+}
+
+function normalizeRenderableTextPage(page = null) {
+  if (!page || page.renderMode === "pdf") return page;
+  const htmlBlocks = parseStructuredBlocksFromHtml(page.html || "");
+  if (!htmlBlocks.length) return page;
+  if (!looksPoorlyReflowedBlockSequence(htmlBlocks)) {
+    return {
+      renderMode: "text",
+      html: renderStructuredBlocksHtml(htmlBlocks),
+      text: htmlBlocks.map((block) => block.text).join("\n\n"),
+    };
+  }
+  return rebuildStructuredPageFromLineBlocks(htmlBlocks, page.text || "");
+}
+
 function buildStructuredPageFromPlainText(rawText = "") {
   const source = String(rawText || "")
-    .replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (!source || source.replace(/\s+/g, "").length < 18) {
     return { html: "", text: "", charCount: 0, renderMode: "pdf" };
   }
-  const lines = source.split(/\n/).map((l) => l.trim()).filter(Boolean);
-  const blocks = [];
-  let buffer = [];
-  const pushBuffer = () => {
-    if (!buffer.length) return;
-    blocks.push({ type: "paragraph", text: buffer.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
-    buffer = [];
-  };
-  for (const line of lines) {
-    const isDialogue = /^[-–—]\s*/.test(line);
-    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(line) && line.length <= 60;
-    if (isDialogue) { pushBuffer(); blocks.push({ type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") }); continue; }
-    if (isCentered) { pushBuffer(); blocks.push({ type: "centered", text: line }); continue; }
-    if (buffer.length) {
-      const prev = buffer[buffer.length - 1];
-      const prevEnds = /[.!?…:]$/.test(prev);
-      if (/^[«"A-ZÉÈÀÂÊÎÔÛÇ]/.test(line) && prevEnds && line.length > 30) pushBuffer();
-    }
-    buffer.push(line);
-  }
-  pushBuffer();
-  if (!blocks.length) return { html: "", text: source, charCount: source.length, renderMode: "pdf" };
-  const html = blocks.map((b) => {
-    if (b.type === "dialogue") return `<p class="dialogue">${escapeHtml(b.text)}</p>`;
-    if (b.type === "centered") return `<p class="centered">${escapeHtml(b.text)}</p>`;
-    return `<p>${escapeHtml(b.text)}</p>`;
-  }).join("");
-  return { html, text: blocks.map((b) => b.text).join("\n\n"), charCount: source.replace(/\s+/g, "").length, renderMode: "text" };
+  const lineBlocks = source.split(/\n/).map((line) => String(line || "").trim()).filter(Boolean).map((line) => {
+    if (/^[-–—]\s*/.test(line)) return { type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") };
+    if (isCenteredTextBlock(line)) return { type: "centered", text: line };
+    return { type: "paragraph", text: line };
+  });
+  return rebuildStructuredPageFromLineBlocks(lineBlocks, source);
 }
 
 function getRenderableTextPage(pageNumber) {
@@ -2607,8 +2736,8 @@ function getRenderableTextPage(pageNumber) {
   const page = state.textDoc?.pages?.[sourcePageNumber - 1];
   if (!page) return null;
   if (page.renderMode === "pdf") return { renderMode: "pdf" };
-  if (page.html) return { renderMode: "text", html: page.html, text: page.text || "" };
-  return buildStructuredPageFromPlainText(page.text || "");
+  const structuredPage = page.html ? { renderMode: "text", html: page.html, text: page.text || "" } : buildStructuredPageFromPlainText(page.text || "");
+  return normalizeRenderableTextPage(structuredPage);
 }
 
 async function renderTextPage(pageNumber) {
@@ -3361,48 +3490,25 @@ function extractStructuredPage(items) {
   const leftVals = filteredLines.map((line) => line.left).sort((a, b) => a - b);
   const baseLeft = leftVals[Math.floor(leftVals.length * 0.2)] || 0;
 
-  const blocks = [];
-  let paragraph = [];
+  const lineBlocks = [];
   let prevLine = null;
-  const pushParagraph = () => {
-    if (!paragraph.length) return;
-    blocks.push({ type: "paragraph", text: paragraph.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
-    paragraph = [];
-  };
-
   for (const line of filteredLines) {
-    const text = line.text;
-    const isDialogue = /^[-–—]\s*/.test(text);
-    const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
+    const text = String(line.text || "").trim();
+    if (!text) continue;
     const indent = line.left - baseLeft;
     const gap = prevLine ? Math.abs((Number(prevLine?.bottom ?? prevLine?.y ?? 0)) - (Number(line?.top ?? line?.y ?? 0))) : 0;
     const strongBreak = prevLine && gap > Math.max(avgH * 2.05, 22);
-    const indentBreak = indent > Math.max(avgH * 1.85, 24);
+    const indentBreak = prevLine && indent > Math.max(avgH * 1.85, 24) && gap > Math.max(avgH * 0.65, 8);
 
-    if (isDialogue) {
-      pushParagraph();
-      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
-    } else if (isCentered) {
-      pushParagraph();
-      blocks.push({ type: "centered", text });
-    } else {
-      if (strongBreak || indentBreak) pushParagraph();
-      paragraph.push(text);
-    }
+    lineBlocks.push({
+      type: /^[-–—]\s*/.test(text) ? "dialogue" : (isCenteredTextBlock(text) ? "centered" : "paragraph"),
+      text: /^[-–—]\s*/.test(text) ? text.replace(/^[-–—]\s*/, "- ") : text,
+      forceBreakBefore: !!(strongBreak || indentBreak),
+    });
     prevLine = line;
   }
-  pushParagraph();
 
-  const plainText = blocks.map((block) => block.text).join("\n\n").trim();
-  const charCount = plainText.replace(/\s+/g, "").length;
-  if (!blocks.length || charCount < 18) return { html: "", text: plainText, charCount, renderMode: "pdf" };
-
-  const html = blocks.map((block) => {
-    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
-    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
-    return `<p>${escapeHtml(block.text)}</p>`;
-  }).join("");
-  return { html, text: plainText, charCount, renderMode: "text" };
+  return rebuildStructuredPageFromLineBlocks(lineBlocks);
 }
 
 async function convertPdfFileToJson(file, metadata) {
