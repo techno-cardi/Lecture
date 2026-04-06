@@ -2064,11 +2064,105 @@ body.focus-mode-active .text-page {
   margin: 0 auto;
 }
 
-/* Admin - vérification de la lecture */
+
+/* Reader layout fix - final */
+.reading-surface {
+  --reader-shell-max: 1380px;
+  --reader-page-max: 1280px;
+  --reader-measure: 74ch;
+  --reader-page-padding-x: clamp(24px, 4vw, 56px);
+  --reader-page-padding-y: clamp(26px, 4vw, 42px);
+}
+.reading-surface.narrow-layout {
+  --reader-shell-max: 1040px;
+  --reader-page-max: 960px;
+  --reader-measure: 60ch;
+  --reader-page-padding-x: clamp(24px, 4.2vw, 48px);
+}
+.reading-surface .text-viewer {
+  width: 100%;
+  max-width: var(--reader-shell-max) !important;
+  margin: 0 auto;
+  padding-left: clamp(12px, 2.6vw, 28px);
+  padding-right: clamp(12px, 2.6vw, 28px);
+}
+.reading-surface .text-page {
+  width: 100%;
+  max-width: var(--reader-page-max) !important;
+  margin: 0 auto;
+  padding: var(--reader-page-padding-y) var(--reader-page-padding-x);
+  overflow-x: hidden;
+}
+.reading-surface .text-content {
+  width: 100% !important;
+  max-width: var(--reader-measure) !important;
+  margin: 0 auto !important;
+  line-height: 1.7;
+}
+.reading-surface .text-content > p {
+  margin: 0;
+}
+.reading-surface .text-content > p + p {
+  margin-top: 0.9em;
+}
+.reading-surface .text-content > p:not(.dialogue):not(.centered) {
+  text-align: left;
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+  word-spacing: normal;
+  letter-spacing: normal;
+  hyphens: auto;
+}
+@media (min-width: 900px) {
+  .reading-surface .text-content > p:not(.dialogue):not(.centered) {
+    text-align: justify;
+    text-justify: inter-word;
+  }
+}
+.reading-surface .text-content p.dialogue {
+  text-align: left;
+  padding-left: 1.35em;
+  text-indent: -1.35em;
+  margin-top: 0.45em;
+}
+.reading-surface .text-content p.dialogue + p.dialogue {
+  margin-top: 0.2em;
+}
+.reading-surface .text-content p.centered {
+  text-align: center;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+@media (max-width: 760px) {
+  .reading-surface {
+    --reader-shell-max: 100%;
+    --reader-page-max: 100%;
+    --reader-measure: 100%;
+    --reader-page-padding-x: 16px;
+    --reader-page-padding-y: 22px;
+  }
+  .reading-surface.narrow-layout {
+    --reader-measure: calc(100% - 20px);
+    --reader-page-padding-x: 20px;
+  }
+  .reading-surface .text-viewer {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .reading-surface .text-page {
+    border-radius: 22px;
+  }
+  .reading-surface .text-content > p:not(.dialogue):not(.centered) {
+    text-align: left;
+  }
+}
+
+
+/* Admin - vérification de la lecture, fusion avec correctifs du lecteur */
 .reading-check-tabs {
   display: inline-flex;
   gap: 8px;
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   padding: 4px;
   background: rgba(17, 24, 39, 0.06);
   border-radius: 999px;
@@ -2092,11 +2186,28 @@ body.focus-mode-active .text-page {
 }
 
 .reading-check-global-summary {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
 }
 
 .reading-check-summary-wide {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.reading-check-summary-wide .reading-check-summary-card {
+  padding: 14px 18px;
+}
+
+.reading-check-layout {
+  grid-template-columns: minmax(380px, 450px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.reading-check-users-pane {
+  min-width: 0;
+}
+
+.reading-check-user-list {
+  min-height: 320px;
 }
 
 .reading-check-user-btn-rich {
@@ -2116,7 +2227,11 @@ body.focus-mode-active .text-page {
   color: var(--ink-soft);
 }
 
-@media (max-width: 900px) {
+.reading-check-user-btn-rich .reading-check-user-email {
+  margin-top: 2px;
+}
+
+@media (max-width: 1100px) {
   .reading-check-tabs {
     width: 100%;
     display: grid;
@@ -2125,5 +2240,27 @@ body.focus-mode-active .text-page {
 
   .reading-check-tab-btn {
     width: 100%;
+  }
+
+  .reading-check-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .reading-check-users-pane {
+    max-height: 320px;
+  }
+}
+
+@media (max-width: 700px) {
+  .reading-check-global-summary {
+    margin-bottom: 8px;
+  }
+
+  .reading-check-summary-wide {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reading-check-users-pane {
+    max-height: 300px;
   }
 }
