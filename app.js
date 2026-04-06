@@ -88,6 +88,8 @@ const dom = {
   readingCheckOverviewTabBtn: document.getElementById("readingCheckOverviewTabBtn"),
   readingCheckSearchInput: document.getElementById("readingCheckSearchInput"),
   readingCheckSortSelect: document.getElementById("readingCheckSortSelect"),
+  readingCheckOverviewBookField: document.getElementById("readingCheckOverviewBookField"),
+  readingCheckOverviewBookSelect: document.getElementById("readingCheckOverviewBookSelect"),
   readingCheckGlobalFilterField: document.getElementById("readingCheckGlobalFilterField"),
   readingCheckGlobalFilterSelect: document.getElementById("readingCheckGlobalFilterSelect"),
   readingCheckStatus: document.getElementById("readingCheckStatus"),
@@ -251,6 +253,7 @@ const state = {
   loadingUsersReadingOverview: false,
   selectedReadingCheckOverviewEmail: "",
   readingCheckGlobalFilterMode: "all",
+  readingCheckOverviewBookId: "all",
   selectedBookReviewEmail: "",
   bookReviewData: null,
   loadingBookReviewId: "",
@@ -520,6 +523,7 @@ function resetAdminState() {
   state.loadingUsersReadingOverview = false;
   state.readingCheckViewMode = "student";
   state.readingCheckGlobalFilterMode = "all";
+  state.readingCheckOverviewBookId = "all";
   state.selectedBookReviewEmail = "";
   state.bookReviewData = null;
   state.loadingBookReviewId = "";
@@ -529,6 +533,7 @@ function resetAdminState() {
   state.bookReviewShowExternal = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "all";
   if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
@@ -1003,6 +1008,7 @@ function updateReadingCheckModeUi() {
     dom.readingCheckOverviewTabBtn.classList.toggle("is-active", isOverview);
     dom.readingCheckOverviewTabBtn.setAttribute("aria-selected", isOverview ? "true" : "false");
   }
+  if (dom.readingCheckOverviewBookField) dom.readingCheckOverviewBookField.hidden = !isOverview;
   if (dom.readingCheckGlobalFilterField) dom.readingCheckGlobalFilterField.hidden = !isOverview;
   if (dom.readingCheckGlobalSummary) dom.readingCheckGlobalSummary.hidden = !isOverview;
 }
@@ -1023,33 +1029,105 @@ function getSortedReadingCheckUsers() {
     .sort((left, right) => compareReadingCheckUsers(left, right, sortMode));
 }
 
-function getFilteredReadingCheckOverviewUsers() {
+function getReadingCheckOverviewSelectedBookId() {
+  const value = String(dom.readingCheckOverviewBookSelect?.value || state.readingCheckOverviewBookId || "all");
+  state.readingCheckOverviewBookId = value || "all";
+  return state.readingCheckOverviewBookId;
+}
+
+function getReadingCheckOverviewBooks() {
+  return Array.isArray(state.usersReadingOverviewData?.books) ? state.usersReadingOverviewData.books : [];
+}
+
+function getReadingCheckOverviewBookMeta(bookId) {
+  if (!bookId || bookId === "all") return null;
+  return getReadingCheckOverviewBooks().find((book) => String(book.bookId || "") === String(bookId)) || null;
+}
+
+function getReadingCheckOverviewUserBookStatus(user, bookId = getReadingCheckOverviewSelectedBookId()) {
+  if (!user || !bookId || bookId === "all") return null;
+  const statuses = Array.isArray(user.bookStatuses) ? user.bookStatuses : [];
+  return statuses.find((item) => String(item.bookId || "") === String(bookId)) || null;
+}
+
+function getReadingCheckOverviewEffectiveStatus(user, bookId = getReadingCheckOverviewSelectedBookId()) {
+  const scoped = getReadingCheckOverviewUserBookStatus(user, bookId);
+  return scoped?.status || user?.status || "not_started";
+}
+
+function getReadingCheckOverviewEffectiveActivityAt(user, bookId = getReadingCheckOverviewSelectedBookId()) {
+  const scoped = getReadingCheckOverviewUserBookStatus(user, bookId);
+  return scoped?.lastActivityAt || scoped?.lastUpdated || scoped?.lastOpenedAt || user?.lastActivityAt || user?.lastUpdated || user?.lastOpenedAt || getEffectiveReadingCheckConnectionAt(user);
+}
+
+function getReadingCheckOverviewScopeLabel() {
+  const bookId = getReadingCheckOverviewSelectedBookId();
+  if (!bookId || bookId === "all") return "Tous les romans visibles";
+  return getReadingCheckOverviewBookMeta(bookId)?.title || "Roman sélectionné";
+}
+
+function compareReadingCheckOverviewUsers(left, right, sortMode = "name") {
+  const leftHasProfile = !!(left?.hasProfile || hasStructuredReadingCheckName(left));
+  const rightHasProfile = !!(right?.hasProfile || hasStructuredReadingCheckName(right));
+  if (leftHasProfile !== rightHasProfile) return leftHasProfile ? -1 : 1;
+
+  if (sortMode === "connection") {
+    const rightConnection = parseDateMs(getEffectiveReadingCheckConnectionAt(right));
+    const leftConnection = parseDateMs(getEffectiveReadingCheckConnectionAt(left));
+    if (rightConnection !== leftConnection) return rightConnection - leftConnection;
+  }
+
+  if (sortMode === "activity") {
+    const rightActivity = parseDateMs(getReadingCheckOverviewEffectiveActivityAt(right));
+    const leftActivity = parseDateMs(getReadingCheckOverviewEffectiveActivityAt(left));
+    if (rightActivity !== leftActivity) return rightActivity - leftActivity;
+  }
+
+  if (sortMode === "email") {
+    return String(left?.email || "").localeCompare(String(right?.email || ""), "fr-CA");
+  }
+
+  const leftKey = `${String(left?.lastName || "").toLowerCase()}${String(left?.firstName || "").toLowerCase()}${String(left?.email || "").toLowerCase()}`;
+  const rightKey = `${String(right?.lastName || "").toLowerCase()}${String(right?.firstName || "").toLowerCase()}${String(right?.email || "").toLowerCase()}`;
+  return leftKey.localeCompare(rightKey, "fr-CA");
+}
+
+function getBaseReadingCheckOverviewUsers({ applyStatusFilter = true, applySearch = true } = {}) {
   const payload = state.usersReadingOverviewData;
   if (!payload?.users) return [];
   const query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
   const sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
   const filterMode = dom.readingCheckGlobalFilterSelect?.value || state.readingCheckGlobalFilterMode || "all";
   const showExternal = !!dom.readingCheckShowExternalInput?.checked;
+  const bookId = getReadingCheckOverviewSelectedBookId();
   state.readingCheckSortMode = sortMode;
   state.readingCheckGlobalFilterMode = filterMode;
   state.readingCheckShowExternal = showExternal;
+
   return [...payload.users]
     .filter((user) => {
       const effectiveConnectionAt = getEffectiveReadingCheckConnectionAt(user);
+      const effectiveStatus = getReadingCheckOverviewEffectiveStatus(user, bookId);
+      const scopedBook = getReadingCheckOverviewUserBookStatus(user, bookId);
       if (!showExternal && user.isExternal) return false;
-      if (filterMode === "started" && !(user.status === "started" || user.status === "completed")) return false;
-      if (filterMode === "not_started" && user.status !== "not_started") return false;
-      if (filterMode === "completed" && user.status !== "completed") return false;
-      if (filterMode === "connected" && !effectiveConnectionAt) return false;
-      if (filterMode === "never_connected" && !!effectiveConnectionAt) return false;
-      if (!query) return true;
+      if (bookId !== "all" && !scopedBook) return false;
+      if (applyStatusFilter) {
+        if (filterMode === "started" && !(effectiveStatus === "started" || effectiveStatus === "completed")) return false;
+        if (filterMode === "not_started" && effectiveStatus !== "not_started") return false;
+        if (filterMode === "completed" && effectiveStatus !== "completed") return false;
+        if (filterMode === "connected" && !effectiveConnectionAt) return false;
+        if (filterMode === "never_connected" && !!effectiveConnectionAt) return false;
+      }
+      if (!applySearch || !query) return true;
       const haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
       return haystack.includes(query);
     })
-    .sort((left, right) => compareReadingCheckUsers(left, right, sortMode));
+    .sort((left, right) => compareReadingCheckOverviewUsers(left, right, sortMode));
 }
 
-
+function getFilteredReadingCheckOverviewUsers() {
+  return getBaseReadingCheckOverviewUsers({ applyStatusFilter: true, applySearch: true });
+}
 
 function getPendingReadingCheckUser() {
   const selectedEmail = normalizeEmail(state.loadingReadingCheckEmail || state.selectedReadingCheckEmail);
@@ -1086,15 +1164,42 @@ function computeReadingCheckSummaryFromBooks(books) {
 }
 
 function getReadingCheckOverviewSummary() {
-  const users = Array.isArray(state.usersReadingOverviewData?.users) ? state.usersReadingOverviewData.users : [];
+  const users = getBaseReadingCheckOverviewUsers({ applyStatusFilter: false, applySearch: false });
   return {
+    scopeLabel: getReadingCheckOverviewScopeLabel(),
     totalUsers: users.length,
-    startedUsers: users.filter((item) => item.status === "started" || item.status === "completed").length,
-    notStartedUsers: users.filter((item) => item.status === "not_started").length,
-    completedUsers: users.filter((item) => item.status === "completed").length,
+    startedUsers: users.filter((item) => {
+      const status = getReadingCheckOverviewEffectiveStatus(item);
+      return status === "started" || status === "completed";
+    }).length,
+    notStartedUsers: users.filter((item) => getReadingCheckOverviewEffectiveStatus(item) === "not_started").length,
+    completedUsers: users.filter((item) => getReadingCheckOverviewEffectiveStatus(item) === "completed").length,
     connectedUsers: users.filter((item) => !!getEffectiveReadingCheckConnectionAt(item)).length,
     neverConnectedUsers: users.filter((item) => !getEffectiveReadingCheckConnectionAt(item)).length,
   };
+}
+
+function syncReadingCheckOverviewBookOptions() {
+  if (!dom.readingCheckOverviewBookSelect) return;
+  const books = getReadingCheckOverviewBooks();
+  const currentValue = String(dom.readingCheckOverviewBookSelect.value || state.readingCheckOverviewBookId || "all");
+  const options = ['<option value="all">Tous les romans visibles</option>'].concat(
+    books.map((book) => `<option value="${escapeHtml(String(book.bookId || ""))}">${escapeHtml(String(book.title || book.bookId || "Roman"))}</option>`)
+  );
+  dom.readingCheckOverviewBookSelect.innerHTML = options.join("");
+  const allowed = new Set(["all", ...books.map((book) => String(book.bookId || ""))]);
+  const nextValue = allowed.has(currentValue) ? currentValue : "all";
+  dom.readingCheckOverviewBookSelect.value = nextValue;
+  state.readingCheckOverviewBookId = nextValue;
+}
+
+function formatReadingCheckOverviewListMeta(user) {
+  const bookId = getReadingCheckOverviewSelectedBookId();
+  const scoped = getReadingCheckOverviewUserBookStatus(user, bookId);
+  if (scoped && (scoped.lastActivityAt || scoped.lastUpdated || scoped.lastOpenedAt)) {
+    return `Activité sur ce livre: ${formatDateTime(scoped.lastActivityAt || scoped.lastUpdated || scoped.lastOpenedAt)}`;
+  }
+  return formatReadingCheckConnectionText(user);
 }
 
 function renderReadingCheckGlobalSummary() {
@@ -1106,7 +1211,7 @@ function renderReadingCheckGlobalSummary() {
     return;
   }
   if (state.loadingUsersReadingOverview && !state.usersReadingOverviewData?.users) {
-    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary reading-check-summary-detail-compact"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargement…</div></div></div>`;
+    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary reading-check-summary-wide reading-check-summary-wide-compact"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargement…</div></div></div>`;
     return;
   }
   if (!state.usersReadingOverviewData?.users) {
@@ -1115,8 +1220,12 @@ function renderReadingCheckGlobalSummary() {
   }
   const summary = getReadingCheckOverviewSummary();
   dom.readingCheckGlobalSummary.innerHTML = `
+    <div class="reading-check-global-summary-head">
+      <div class="reading-check-global-summary-title">Vue du roman</div>
+      <div class="reading-check-global-summary-scope">${escapeHtml(summary.scopeLabel || "Tous les romans visibles")}</div>
+    </div>
     <div class="reading-check-summary reading-check-summary-wide reading-check-summary-wide-compact">
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs</div><div class="reading-check-summary-value">${Number(summary.totalUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs visés</div><div class="reading-check-summary-value">${Number(summary.totalUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Ont commencé</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">N'ont pas lu</div><div class="reading-check-summary-value">${Number(summary.notStartedUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Terminés</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
@@ -1138,17 +1247,18 @@ function renderReadingCheckOverviewUserList() {
   }
   dom.readingCheckUserList.innerHTML = users.map((user) => {
     const active = state.selectedReadingCheckOverviewEmail === user.email;
+    const effectiveStatus = getReadingCheckOverviewEffectiveStatus(user);
     return `
       <button class="reading-check-user-btn reading-check-user-btn-rich${active ? " is-active" : ""}" type="button" data-reading-check-overview-email="${escapeHtml(user.email)}">
         <span class="reading-check-user-name">${escapeHtml(getReadingCheckUserName(user))}</span>
         <span class="reading-check-user-email">${escapeHtml(user.email)}</span>
         <span class="reading-check-user-meta-line">
-          <span class="badge ${getReadingCheckStatusClass(user.status)}">${escapeHtml(getReadingCheckStatusLabel(user.status))}</span>
+          <span class="badge ${getReadingCheckStatusClass(effectiveStatus)}">${escapeHtml(getReadingCheckStatusLabel(effectiveStatus))}</span>
           ${user.isExternal ? `<span class="badge hidden">Externe</span>` : ""}
           ${!user.hasProfile ? `<span class="badge hidden">Nom manquant</span>` : ""}
         </span>
         <span class="reading-check-user-meta-line reading-check-user-meta-small">
-          <span>${escapeHtml(formatReadingCheckConnectionText(user))}</span>
+          <span>${escapeHtml(formatReadingCheckOverviewListMeta(user))}</span>
         </span>
       </button>`;
   }).join("");
@@ -1193,23 +1303,55 @@ function renderReadingCheckOverviewDetails() {
     return;
   }
   state.selectedReadingCheckOverviewEmail = selected.email;
+  const selectedBookId = getReadingCheckOverviewSelectedBookId();
+  const selectedBook = getReadingCheckOverviewUserBookStatus(selected, selectedBookId);
+  const selectedBookMeta = getReadingCheckOverviewBookMeta(selectedBookId);
+  const scopedMode = !!selectedBook && selectedBookId !== "all";
+  const scopedTitle = selectedBookMeta?.title || selectedBook?.title || "Roman sélectionné";
+  const scopedProgress = Number(selectedBook?.totalPages) > 0
+    ? `${Math.max(0, Number(selectedBook?.currentPage) || 0)} / ${Math.max(0, Number(selectedBook?.totalPages) || 0)}`
+    : `${Math.round(Number(selectedBook?.progressPercent) || 0)} %`;
+  const scopedActivity = selectedBook?.lastActivityAt || selectedBook?.lastUpdated || selectedBook?.lastOpenedAt || "";
   dom.readingCheckDetails.innerHTML = `
     <div class="reading-check-user-heading">
       <h4>${escapeHtml(getReadingCheckUserName(selected))}</h4>
       <p>${escapeHtml(selected.email || "")}</p>
     </div>
-    <div class="reading-check-summary">
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Statut</div><div class="reading-check-summary-value">${escapeHtml(getReadingCheckStatusLabel(selected.status))}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencés</div><div class="reading-check-summary-value">${Number(selected.booksStarted) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres terminés</div><div class="reading-check-summary-value">${Number(selected.booksCompleted) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selected.totalReadingSeconds))}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(selected.totalSessions) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selected.lastActivityAt))}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(selected.totalBookmarks) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(selected.totalNotes) || 0}</div></div>
+    <div class="reading-check-summary reading-check-summary-detail-compact">
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Statut</div><div class="reading-check-summary-value">${escapeHtml(getReadingCheckStatusLabel(scopedMode ? selectedBook?.status : selected.status))}</div></div>
+      ${scopedMode
+        ? `<div class="reading-check-summary-card"><div class="reading-check-summary-label">Progression</div><div class="reading-check-summary-value">${escapeHtml(scopedProgress)}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selectedBook?.readingSeconds))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(selectedBook?.sessionCount) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(scopedActivity))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(selectedBook?.bookmarksCount) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(selectedBook?.notesCount) || 0}</div></div>`
+        : `<div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencés</div><div class="reading-check-summary-value">${Number(selected.booksStarted) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres terminés</div><div class="reading-check-summary-value">${Number(selected.booksCompleted) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selected.totalReadingSeconds))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(selected.totalSessions) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selected.lastActivityAt))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(selected.totalBookmarks) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(selected.totalNotes) || 0}</div></div>`}
     </div>
     <div class="reading-check-book-list">
+      ${scopedMode ? `<article class="reading-check-book-card">
+        <div class="reading-check-book-head">
+          <div>
+            <h5>${escapeHtml(scopedTitle)}</h5>
+            <p>Données de lecture pour le roman sélectionné</p>
+          </div>
+          <div class="badge ${getReadingCheckStatusClass(selectedBook?.status)}">${escapeHtml(getReadingCheckStatusLabel(selectedBook?.status))}</div>
+        </div>
+        <div class="reading-check-book-stats">
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Page actuelle</div><div class="reading-check-stat-value">${Number(selectedBook?.currentPage) || 0}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Total de pages</div><div class="reading-check-stat-value">${Number(selectedBook?.totalPages) || 0}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Progression</div><div class="reading-check-stat-value">${Math.round(Number(selectedBook?.progressPercent) || 0)} %</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière page visitée</div><div class="reading-check-stat-value">${Number(selectedBook?.lastPageVisited) || 0}</div></div>
+        </div>
+      </article>` : ""}
       <article class="reading-check-book-card">
         <div class="reading-check-book-head">
           <div>
@@ -1404,6 +1546,7 @@ async function loadUsersReadingOverview(force = false) {
     const response = await jsonp("getUsersReadingOverview", { email: state.email, adminCode: state.adminCode });
     if (!response?.ok) throw new Error(response?.message || "Impossible de charger la vue globale.");
     state.usersReadingOverviewData = response;
+    syncReadingCheckOverviewBookOptions();
     const firstUser = getFilteredReadingCheckOverviewUsers()[0] || (Array.isArray(response.users) ? response.users[0] : null);
     state.selectedReadingCheckOverviewEmail = state.selectedReadingCheckOverviewEmail || (firstUser ? firstUser.email : "");
     setReadingCheckStatus("");
@@ -1464,6 +1607,7 @@ async function openReadingCheckModal() {
   dom.readingCheckModal.hidden = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
+  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "all";
   if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   state.readingCheckSortMode = "name";
@@ -1477,6 +1621,7 @@ async function openReadingCheckModal() {
   state.loadingReadingCheckEmail = "";
   state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
+  state.readingCheckOverviewBookId = "all";
   state.loadingAssignableUsers = true;
   setReadingCheckStatus("");
   setReadingCheckViewMode("student");
@@ -1492,6 +1637,7 @@ function closeReadingCheckModal() {
   state.loadingReadingCheckEmail = "";
   state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
+  state.readingCheckOverviewBookId = "all";
   state.readingCheckViewMode = "student";
   if (dom.readingCheckGlobalSummary) dom.readingCheckGlobalSummary.innerHTML = "";
   setReadingCheckStatus("");
@@ -4644,6 +4790,7 @@ function attachEvents() {
   on(dom.readingCheckModal, "click", (e) => { if (e.target === dom.readingCheckModal) closeReadingCheckModal(); });
   on(dom.readingCheckSearchInput, "input", refreshReadingCheckAfterFilterChange);
   on(dom.readingCheckSortSelect, "change", refreshReadingCheckAfterFilterChange);
+  on(dom.readingCheckOverviewBookSelect, "change", refreshReadingCheckAfterFilterChange);
   on(dom.readingCheckGlobalFilterSelect, "change", refreshReadingCheckAfterFilterChange);
   on(dom.readingCheckShowExternalInput, "change", refreshReadingCheckAfterFilterChange);
   on(dom.readingCheckDetails, "change", (e) => {

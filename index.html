@@ -261,17 +261,23 @@
           <button id="readingCheckOverviewTabBtn" class="reading-check-tab-btn" type="button" role="tab" aria-selected="false">Vue globale</button>
         </div>
         <div class="reading-check-toolbar">
-          <label class="reading-check-field" for="readingCheckSearchInput">
+          <label id="readingCheckSearchField" class="reading-check-field" for="readingCheckSearchInput">
             <span>Rechercher un utilisateur</span>
             <input id="readingCheckSearchInput" type="text" placeholder="Nom, prénom ou courriel">
           </label>
-          <label class="reading-check-field reading-check-sort-field" for="readingCheckSortSelect">
+          <label id="readingCheckSortField" class="reading-check-field reading-check-sort-field" for="readingCheckSortSelect">
             <span>Trier par</span>
             <select id="readingCheckSortSelect">
               <option value="name">Nom, prénom</option>
               <option value="email">Adresse courriel</option>
               <option value="connection">Dernière connexion</option>
               <option value="activity">Dernière activité</option>
+            </select>
+          </label>
+          <label id="readingCheckOverviewBookField" class="reading-check-field reading-check-sort-field" for="readingCheckOverviewBookSelect" hidden>
+            <span>Roman</span>
+            <select id="readingCheckOverviewBookSelect">
+              <option value="all">Tous les romans visibles</option>
             </select>
           </label>
           <label id="readingCheckGlobalFilterField" class="reading-check-field reading-check-sort-field" for="readingCheckGlobalFilterSelect" hidden>
@@ -527,7 +533,7 @@
   </div>
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
-  <script src="./config.js?v=20260404v25"></script>
-  <script type="module" src="./app.js?v=20260404v25"></script>
+  <script src="./config.js?v=20260406v31"></script>
+  <script type="module" src="./app.js?v=20260406v31"></script>
 </body>
 </html>
