@@ -956,6 +956,17 @@ function formatReadingCheckKnownConnectionValue(user) {
   return "Jamais connecté";
 }
 
+function resetReadingCheckDetailScroll() {
+  if (dom.readingCheckDetails) dom.readingCheckDetails.scrollTop = 0;
+}
+
+function scrollActiveReadingCheckUserIntoView() {
+  if (!dom.readingCheckUserList) return;
+  const activeButton = dom.readingCheckUserList.querySelector('.reading-check-user-btn.is-active');
+  if (!activeButton || typeof activeButton.scrollIntoView !== 'function') return;
+  activeButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
 function compareReadingCheckUsers(left, right, sortMode = "name") {
   const leftHasProfile = !!(left?.hasProfile || hasStructuredReadingCheckName(left));
   const rightHasProfile = !!(right?.hasProfile || hasStructuredReadingCheckName(right));
@@ -1095,7 +1106,7 @@ function renderReadingCheckGlobalSummary() {
     return;
   }
   if (state.loadingUsersReadingOverview && !state.usersReadingOverviewData?.users) {
-    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargement…</div></div></div>`;
+    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary reading-check-summary-detail-compact"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargement…</div></div></div>`;
     return;
   }
   if (!state.usersReadingOverviewData?.users) {
@@ -1104,7 +1115,7 @@ function renderReadingCheckGlobalSummary() {
   }
   const summary = getReadingCheckOverviewSummary();
   dom.readingCheckGlobalSummary.innerHTML = `
-    <div class="reading-check-summary reading-check-summary-wide">
+    <div class="reading-check-summary reading-check-summary-wide reading-check-summary-wide-compact">
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs</div><div class="reading-check-summary-value">${Number(summary.totalUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Ont commencé</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">N'ont pas lu</div><div class="reading-check-summary-value">${Number(summary.notStartedUsers) || 0}</div></div>
@@ -1174,6 +1185,7 @@ function renderReadingCheckUserList() {
 
 function renderReadingCheckOverviewDetails() {
   if (!dom.readingCheckDetails) return;
+  dom.readingCheckDetails.classList.add("is-overview-mode");
   const users = getFilteredReadingCheckOverviewUsers();
   const selected = users.find((user) => user.email === state.selectedReadingCheckOverviewEmail) || users[0] || null;
   if (!selected) {
@@ -1222,6 +1234,7 @@ function renderReadingCheckDetails() {
     return;
   }
   if (!dom.readingCheckDetails) return;
+  dom.readingCheckDetails.classList.remove("is-overview-mode");
   const payload = state.readingCheckData;
   const pendingUser = getPendingReadingCheckUser();
   const payloadUser = payload?.user || null;
@@ -1413,6 +1426,8 @@ function setReadingCheckViewMode(mode) {
   renderReadingCheckGlobalSummary();
   renderReadingCheckUserList();
   renderReadingCheckDetails();
+  resetReadingCheckDetailScroll();
+  scrollActiveReadingCheckUserIntoView();
   if (state.readingCheckViewMode === "overview" && !state.usersReadingOverviewData && !state.loadingUsersReadingOverview) {
     void loadUsersReadingOverview(true);
   }
@@ -1436,6 +1451,8 @@ function refreshReadingCheckAfterFilterChange() {
   renderReadingCheckGlobalSummary();
   renderReadingCheckUserList();
   renderReadingCheckDetails();
+  resetReadingCheckDetailScroll();
+  scrollActiveReadingCheckUserIntoView();
 }
 
 async function openReadingCheckModal() {
@@ -4645,6 +4662,8 @@ function attachEvents() {
       state.selectedReadingCheckOverviewEmail = overviewBtn.dataset.readingCheckOverviewEmail;
       renderReadingCheckUserList();
       renderReadingCheckDetails();
+      resetReadingCheckDetailScroll();
+      scrollActiveReadingCheckUserIntoView();
       return;
     }
     const btn = e.target.closest("[data-reading-check-email]");
