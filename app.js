@@ -625,7 +625,7 @@ function revokePendingEditCoverObjectUrl() {
 
 function renderCoverPreviewMarkup(book = {}, previewUrl = "") {
   const title = escapeHtml(book?.title || "Livre");
-  const effectiveUrl = previewUrl || (book?.coverPath ? computePublicAssetUrl(book.coverPath) : "");
+  const effectiveUrl = previewUrl || (book?.coverPath ? computePublicAssetUrl(book.coverPath, book, "cover") : "");
   if (effectiveUrl) {
     return `<div class="edit-cover-preview-image"><img src="${escapeHtml(effectiveUrl)}" alt="Couverture de ${title}"></div>`;
   }
@@ -643,7 +643,7 @@ function updateEditCoverPreview(book = null) {
     previewUrl = URL.createObjectURL(selectedFile);
     state.pendingEditCoverObjectUrl = previewUrl;
   } else if (!removeRequested && sourceBook?.coverPath) {
-    previewUrl = computePublicAssetUrl(sourceBook.coverPath);
+    previewUrl = computePublicAssetUrl(sourceBook.coverPath, sourceBook, "cover");
   }
   dom.editCoverPreview.innerHTML = renderCoverPreviewMarkup(removeRequested ? { ...sourceBook, coverPath: "" } : sourceBook, previewUrl);
 }
@@ -1801,12 +1801,14 @@ async function refreshBooks(options = {}) {
   }
 
   state.booksRefreshPromise = (async () => {
+    const previousBooks = Array.isArray(state.books) ? state.books.map(buildBookSnapshot).filter(Boolean) : [];
     const response = await jsonp("listBooks", {
       email: state.email,
       adminCode: state.adminUnlocked ? state.adminCode : "",
     }, { timeoutMs: 30000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de charger les livres.");
     state.books = Array.isArray(response.books) ? response.books.map(buildBookSnapshot).filter(Boolean) : [];
+    syncRuntimeCacheWithBookList(previousBooks, state.books);
     saveBooksCache();
     renderBookList();
     renderAdminBooks();
@@ -2307,14 +2309,70 @@ async function deleteNote(noteId) {
 // ════════════════════════════════════════
 // RENDU BIBLIOTHÈQUE
 // ════════════════════════════════════════
-function computePublicAssetUrl(path) {
+function getBookAssetVersion(book = null) {
+  const raw = String(book?.lastPublishedAt || book?.lastUpdated || book?.progressLastUpdated || "").trim();
+  if (!raw) return "";
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : raw.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+}
+
+function computePublicAssetUrl(path, book = null, tag = "") {
   if (!path) return "";
-  return `./${String(path).replace(/^\.\//, "").replace(/^\//, "")}`;
+  const normalizedPath = `./${String(path).replace(/^\.\//, "").replace(/^\//, "")}`;
+  const params = new URLSearchParams();
+  const version = getBookAssetVersion(book);
+  if (version) params.set("v", version);
+  if (tag) params.set("t", String(tag));
+  const query = params.toString();
+  return query ? `${normalizedPath}?${query}` : normalizedPath;
+}
+
+function getBookAssetCacheKey(book, kind = "json") {
+  if (!book) return "";
+  const basePath = kind === "pdf" ? String(book.pdfPath || "") : String(book.jsonPath || "");
+  const version = getBookAssetVersion(book);
+  return `${String(book.bookId || basePath || kind)}::${kind}::${version || "noversion"}`;
+}
+
+function clearBookRuntimeCache(bookOrId) {
+  const targetId = typeof bookOrId === "string" ? String(bookOrId) : String(bookOrId?.bookId || "");
+  if (!targetId) return;
+  for (const key of Array.from(runtimeCache.textDocs.keys())) {
+    if (key.startsWith(`${targetId}::json::`)) runtimeCache.textDocs.delete(key);
+  }
+  for (const key of Array.from(runtimeCache.pdfDocs.keys())) {
+    if (key.startsWith(`${targetId}::pdf::`)) runtimeCache.pdfDocs.delete(key);
+  }
+  if (state.currentBook?.bookId === targetId) {
+    state.pdfDoc = null;
+  }
+}
+
+function syncRuntimeCacheWithBookList(previousBooks = [], nextBooks = []) {
+  const previousMap = new Map((Array.isArray(previousBooks) ? previousBooks : []).map((book) => [String(book.bookId || ""), book]).filter(([id]) => id));
+  const nextMap = new Map((Array.isArray(nextBooks) ? nextBooks : []).map((book) => [String(book.bookId || ""), book]).filter(([id]) => id));
+
+  for (const [bookId, previousBook] of previousMap.entries()) {
+    const nextBook = nextMap.get(bookId);
+    if (!nextBook) {
+      clearBookRuntimeCache(bookId);
+      continue;
+    }
+    const changed = String(previousBook.jsonPath || "") !== String(nextBook.jsonPath || "")
+      || String(previousBook.pdfPath || "") !== String(nextBook.pdfPath || "")
+      || String(previousBook.coverPath || "") !== String(nextBook.coverPath || "")
+      || getBookAssetVersion(previousBook) !== getBookAssetVersion(nextBook);
+    if (changed) clearBookRuntimeCache(bookId);
+  }
+
+  for (const [bookId] of nextMap.entries()) {
+    if (!previousMap.has(bookId)) clearBookRuntimeCache(bookId);
+  }
 }
 
 function coverHtml(book, className = "book-cover") {
   if (book.coverPath) {
-    return `<div class="${className}"><img src="${escapeHtml(computePublicAssetUrl(book.coverPath))}" alt="Couverture de ${escapeHtml(book.title)}" loading="lazy"></div>`;
+    return `<div class="${className}"><img src="${escapeHtml(computePublicAssetUrl(book.coverPath, book, "cover"))}" alt="Couverture de ${escapeHtml(book.title)}" loading="lazy"></div>`;
   }
   return `<div class="cover-placeholder">${escapeHtml((book.title || "?").trim().slice(0, 1).toUpperCase())}</div>`;
 }
@@ -2414,9 +2472,9 @@ function renderAdminBooks() {
 // ════════════════════════════════════════
 async function loadTextJson(book) {
   if (!book?.jsonPath) return null;
-  const cacheKey = String(book.bookId || book.jsonPath || '');
+  const cacheKey = getBookAssetCacheKey(book, "json");
   if (runtimeCache.textDocs.has(cacheKey)) return runtimeCache.textDocs.get(cacheKey);
-  const response = await fetch(computePublicAssetUrl(book.jsonPath), { cache: "force-cache" });
+  const response = await fetch(computePublicAssetUrl(book.jsonPath, book, "json"), { cache: "no-store" });
   if (!response.ok) return null;
   const data = await response.json();
   runtimeCache.textDocs.set(cacheKey, data);
@@ -2425,12 +2483,12 @@ async function loadTextJson(book) {
 
 async function loadPdfDocument(book) {
   if (state.pdfDoc && state.currentBook?.bookId === book.bookId) return state.pdfDoc;
-  const cacheKey = String(book?.bookId || book?.pdfPath || "");
+  const cacheKey = getBookAssetCacheKey(book, "pdf");
   if (runtimeCache.pdfDocs.has(cacheKey)) {
     state.pdfDoc = runtimeCache.pdfDocs.get(cacheKey);
     return state.pdfDoc;
   }
-  const pdfUrl = computePublicAssetUrl(book.pdfPath);
+  const pdfUrl = computePublicAssetUrl(book.pdfPath, book, "pdf");
   const loadingTask = pdfjsLib.getDocument({
     url: pdfUrl,
     disableAutoFetch: true,
@@ -2855,7 +2913,7 @@ async function toggleBookPublished(bookId) {
     }, { timeoutMs: 30000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer le statut.");
     showToast("Statut mis à jour");
-    void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
+    await refreshBooks({ origin: "admin" });
   } catch (error) {
     console.error(error);
     state.books = state.books.map((item) => item.bookId === bookId ? previous : item);
@@ -2933,9 +2991,11 @@ Tape SUPPRIMER pour confirmer la suppression définitive de « ${label} ».`, ""
     if (Array.isArray(response.warnings) && response.warnings.length) {
       console.warn("Avertissements lors de la suppression du livre :", response.warnings);
     }
-    setAdminBooksStatus(response.message || "Livre supprimé.", "success");
+    clearBookRuntimeCache(bookId);
+    setAdminBooksStatus((response.message || "Livre supprimé.") + " Actualisation de la liste…", "success");
     showToast(response.message || "Livre supprimé");
-    void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
+    await refreshBooks({ origin: "admin" });
+    setAdminBooksStatus(response.message || "Livre supprimé.", "success");
   } catch (error) {
     console.error(error);
     state.books = previousBooks;
@@ -3047,6 +3107,7 @@ async function saveEditBook() {
     if (!response?.ok) throw new Error(response?.message || "Impossible de modifier le livre.");
     const nextBook = response.book?.bookId ? buildBookSnapshot(response.book) : optimisticBook;
     state.books = state.books.map((book) => (book.bookId === nextBook.bookId ? nextBook : book));
+    clearBookRuntimeCache(nextBook.bookId);
     saveBooksCache();
     renderBookList();
     renderAdminBooks();
@@ -3315,8 +3376,8 @@ function extractStructuredPage(items) {
     const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
     const indent = line.left - baseLeft;
     const gap = prevLine ? Math.abs((Number(prevLine?.bottom ?? prevLine?.y ?? 0)) - (Number(line?.top ?? line?.y ?? 0))) : 0;
-    const strongBreak = prevLine && gap > Math.max(avgH * 1.35, 13);
-    const indentBreak = indent > Math.max(avgH * 1.15, 15);
+    const strongBreak = prevLine && gap > Math.max(avgH * 2.05, 22);
+    const indentBreak = indent > Math.max(avgH * 1.85, 24);
 
     if (isDialogue) {
       pushParagraph();
@@ -3447,7 +3508,8 @@ async function publishBook(event) {
         renderAssignableUsers("publish");
         dom.bookIdInput.dataset.lockedManual = "";
         dom.publishSizeWarning.hidden = true;
-        await refreshBooks();
+        clearBookRuntimeCache(bookId);
+        await refreshBooks({ origin: "admin" });
         return;
       } else {
         throw new Error(postResult?.message || "Échec de publication côté serveur.");
@@ -3462,7 +3524,8 @@ async function publishBook(event) {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       await new Promise((res) => window.setTimeout(res, delay));
       dom.publishProgress.textContent = `Vérification ${attempt}/${maxAttempts}…`;
-      await refreshBooks();
+      clearBookRuntimeCache(bookId);
+      await refreshBooks({ origin: "admin" });
       const book = getBookById(bookId);
       if (book && book.jsonPath && book.pdfPath) { published = true; break; }
     }

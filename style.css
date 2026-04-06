@@ -2012,3 +2012,54 @@ body.focus-mode-active .text-page {
     width: 100%;
   }
 }
+
+/* Patch v2 - cache/modal/width fixes */
+.font-modal-overlay {
+  align-items: center;
+  justify-content: center;
+  padding: max(12px, calc(var(--safe-top) + 8px)) 12px max(12px, calc(var(--safe-bottom) + 8px));
+  overflow-y: auto;
+}
+.font-modal-panel {
+  max-height: min(92vh, calc(100vh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.edit-book-modal-panel {
+  width: min(94vw, 720px);
+  max-height: min(92vh, calc(100vh - 24px));
+}
+@media (max-width: 760px) {
+  .font-modal-overlay {
+    padding: max(10px, calc(var(--safe-top) + 6px)) 10px max(10px, calc(var(--safe-bottom) + 6px));
+  }
+  .font-modal-panel,
+  .edit-book-modal-panel {
+    width: min(96vw, 720px);
+    border-radius: 20px;
+  }
+}
+.text-page {
+  overflow-x: hidden;
+}
+.text-content {
+  width: min(100%, 56rem);
+  max-width: min(100%, 56rem);
+  margin: 0 auto;
+}
+.reading-surface:not(.narrow-layout) .text-viewer {
+  width: min(100%, 1320px);
+}
+.reading-surface:not(.narrow-layout) .text-content {
+  width: min(100%, 56rem);
+  max-width: min(100%, 56rem);
+  margin: 0 auto;
+}
+.reading-surface.narrow-layout .text-viewer {
+  width: min(100%, 860px);
+}
+.reading-surface.narrow-layout .text-content {
+  width: min(100%, 38rem);
+  max-width: min(100%, 38rem);
+  margin: 0 auto;
+}
