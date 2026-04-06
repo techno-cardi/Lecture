@@ -227,6 +227,7 @@ const state = {
   editAssignedEmails: [],
   openingBookId: "",
   editBusyBookId: "",
+  deleteBusyBookId: "",
   selectedReadingCheckEmail: "",
   readingCheckData: null,
   loadingReadingCheckEmail: "",
@@ -2330,6 +2331,9 @@ function renderAdminBooks() {
             <button class="ghost-btn admin-edit-btn${isEditBusy ? " is-loading" : ""}" type="button" data-edit-book="${escapeHtml(book.bookId)}"${isEditBusy ? " disabled aria-busy=\"true\"" : ""}>
               ${isEditBusy ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>` : "Modifier"}
             </button>
+            <button class="ghost-btn admin-delete-btn${state.deleteBusyBookId === book.bookId ? " is-loading" : ""}" type="button" data-delete-book="${escapeHtml(book.bookId)}"${state.deleteBusyBookId === book.bookId ? " disabled aria-busy=\"true\"" : ""}>
+              ${state.deleteBusyBookId === book.bookId ? `<span class="inline-spinner" aria-hidden="true"></span><span>Suppression…</span>` : "Supprimer"}
+            </button>
           </div>
         </div>
       </article>
@@ -2800,6 +2804,48 @@ async function toggleBookPdfAllowed(bookId) {
   }
 }
 
+
+async function deleteBook(bookId) {
+  if (!canSeeAdminPanel() || !state.adminUnlocked) return;
+  const book = getBookById(bookId);
+  if (!book) return;
+
+  const label = book.title || book.bookId || "ce livre";
+  const confirmed = window.confirm(`Supprimer définitivement « ${label} » ?\n\nCette action retirera le livre de la bibliothèque et effacera ses données liées.`);
+  if (!confirmed) return;
+
+  const safety = window.prompt(`Confirmation de sécurité\n\nTape SUPPRIMER pour confirmer la suppression définitive de « ${label} ».`, "");
+  if (safety !== "SUPPRIMER") {
+    showToast("Suppression annulée");
+    return;
+  }
+
+  state.deleteBusyBookId = bookId;
+  renderAdminBooks();
+  try {
+    const response = await jsonp("deleteBook", {
+      email: state.email,
+      adminCode: state.adminCode,
+      bookId,
+    });
+    if (!response?.ok) throw new Error(response?.message || "Impossible de supprimer le livre.");
+    state.books = state.books.filter((item) => item.bookId !== bookId);
+    saveBooksCache();
+    renderBookList();
+    renderAdminBooks();
+    if (Array.isArray(response.warnings) && response.warnings.length) {
+      console.warn("Avertissements lors de la suppression du livre :", response.warnings);
+    }
+    showToast(response.message || "Livre supprimé");
+  } catch (error) {
+    console.error(error);
+    showToast(error?.message || "Impossible de supprimer le livre");
+  } finally {
+    state.deleteBusyBookId = "";
+    if (canSeeAdminPanel()) renderAdminBooks();
+  }
+}
+
 // Change 6: Edit book metadata
 async function openEditBookModal(bookId) {
   if (!canSeeAdminPanel() || !state.adminUnlocked) return;
@@ -2936,19 +2982,27 @@ function detectCoverExtension(file) {
 function buildLineFromWords(words) {
   const parts = [];
   let prevRight = null;
+  let prevHeight = 0;
   for (const word of words) {
     const text = String(word.text || "").trim();
     if (!text) continue;
     const left = Number(word.x) || 0;
-    if (!parts.length) { parts.push(text); }
-    else {
+    const height = Number(word.height) || 0;
+    if (!parts.length) {
+      parts.push(text);
+    } else {
       const gap = prevRight === null ? 0 : left - prevRight;
+      const previousText = parts[parts.length - 1] || "";
       const noLeadSpace = /^[,.;:!?%)\]»]/.test(text);
-      const noTrailSpace = /[(\[«]$/.test(parts[parts.length - 1]);
-      if (noLeadSpace || noTrailSpace || gap < 1.5) parts[parts.length - 1] += text;
+      const noTrailSpace = /[(\[«]$/.test(previousText);
+      const decorativeInitialJoin = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(previousText)
+        && /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(text)
+        && gap <= Math.max(prevHeight * 0.95, height * 0.95, 8);
+      if (noLeadSpace || noTrailSpace || gap < 1.5 || decorativeInitialJoin) parts[parts.length - 1] += text;
       else parts.push(text);
     }
     prevRight = (Number(word.x) || 0) + (Number(word.width) || 0);
+    prevHeight = height;
   }
   return normalizeLineText(parts);
 }
@@ -2963,27 +3017,34 @@ function mergeDecorativeInitialLines(lines) {
     const nextText = String(next?.text || "").trim();
     const currentHeight = Number(current?.height) || 0;
     const nextHeight = Number(next?.height) || 0;
-    const currentTop = Number(current?.y) || 0;
-    const nextTop = Number(next?.y) || 0;
+    const currentTop = Number(current?.top ?? current?.y ?? 0);
+    const currentBottom = Number(current?.bottom ?? current?.y ?? 0);
+    const nextTop = Number(next?.top ?? next?.y ?? 0);
+    const nextBottom = Number(next?.bottom ?? next?.y ?? 0);
     const currentLeft = Number(current?.left) || 0;
     const nextLeft = Number(next?.left) || 0;
     const currentRight = Number(current?.right);
 
     const currentIsInitial = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(currentText);
     const nextStartsLowercase = /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(nextText);
-    const significantlyTaller = currentHeight > nextHeight * 1.55;
-    const sameParagraphBand = nextTop <= currentTop + Math.max(currentHeight * 1.15, nextHeight * 1.4, 16);
-    const nextBeginsToTheRight = nextLeft >= currentLeft + Math.max(currentHeight * 0.18, 2);
-    const gapToNext = isFinite(currentRight) ? nextLeft - currentRight : 0;
-    const visuallyClose = !isFinite(currentRight) || gapToNext <= Math.max(currentHeight * 0.8, nextHeight * 2.2, 18);
+    const significantlyTaller = currentHeight > nextHeight * 1.45;
+    const verticalOverlap = Math.min(currentBottom, nextBottom) - Math.max(currentTop, nextTop);
+    const minHeight = Math.min(Math.max(0, currentBottom - currentTop), Math.max(0, nextBottom - nextTop));
+    const sameParagraphBand = verticalOverlap >= Math.max(1.2, minHeight * 0.16)
+      || nextTop <= currentBottom + Math.max(currentHeight * 0.65, nextHeight * 0.9, 10);
+    const nextBeginsToTheRight = nextLeft >= currentLeft + Math.max(currentHeight * 0.14, 2);
+    const gapToNext = Number.isFinite(currentRight) ? nextLeft - currentRight : 0;
+    const visuallyClose = !Number.isFinite(currentRight) || gapToNext <= Math.max(currentHeight * 0.9, nextHeight * 2.4, 18);
 
     if (currentIsInitial && nextStartsLowercase && significantlyTaller && sameParagraphBand && nextBeginsToTheRight && visuallyClose) {
       merged.push({
         text: currentText + nextText,
-        y: Math.max(currentTop, nextTop),
+        y: Math.max(Number(current?.y) || 0, Number(next?.y) || 0),
+        top: Math.min(currentTop, nextTop),
+        bottom: Math.max(currentBottom, nextBottom),
         height: Math.max(currentHeight, nextHeight),
         left: Math.min(currentLeft, nextLeft),
-        right: isFinite(Number(next?.right)) ? Number(next.right) : nextLeft,
+        right: Number.isFinite(Number(next?.right)) ? Number(next.right) : nextLeft,
       });
       index += 1;
       continue;
@@ -2997,82 +3058,136 @@ function mergeDecorativeInitialLines(lines) {
 function extractStructuredPage(items) {
   if (!Array.isArray(items) || !items.length) return { html: "", text: "", charCount: 0, renderMode: "pdf" };
   const entries = items
-    .map((item) => ({
-      text: String(item.str || ""),
-      x: Number(item.transform?.[4] || 0), y: Number(item.transform?.[5] || 0),
-      width: Number(item.width || 0), height: Number(item.height || 0),
-    }))
+    .map((item) => {
+      const x = Number(item.transform?.[4] || 0);
+      const y = Number(item.transform?.[5] || 0);
+      const width = Number(item.width || 0);
+      const height = Number(item.height || 0);
+      return {
+        text: String(item.str || ""),
+        x,
+        y,
+        width,
+        height,
+        right: x + width,
+        top: y - height,
+        bottom: y,
+      };
+    })
     .filter((item) => item.text && item.text.trim());
   if (!entries.length) return { html: "", text: "", charCount: 0, renderMode: "pdf" };
 
   const sorted = entries.sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x);
   const lines = [];
-  let currentWords = [], currentY = null, currentHeight = 0;
-  for (const entry of sorted) {
-    if (currentY === null) { currentWords = [entry]; currentY = entry.y; currentHeight = entry.height || 10; continue; }
-    const threshold = Math.max(2.8, (currentHeight || 10) * 0.45);
-    if (Math.abs(entry.y - currentY) <= threshold) {
-      currentWords.push(entry); currentHeight = Math.max(currentHeight, entry.height || 10);
-    } else {
-      const ordered = currentWords.sort((a, b) => a.x - b.x);
-      lines.push({
-        text: buildLineFromWords(ordered),
-        y: currentY,
-        height: currentHeight,
-        left: ordered[0]?.x || 0,
-        right: (ordered[ordered.length - 1]?.x || 0) + (ordered[ordered.length - 1]?.width || 0),
-      });
-      currentWords = [entry]; currentY = entry.y; currentHeight = entry.height || 10;
-    }
-  }
-  if (currentWords.length) {
-    const ordered = currentWords.sort((a, b) => a.x - b.x);
+  let currentWords = [];
+  let currentTop = null;
+  let currentBottom = null;
+  let currentY = null;
+  let currentHeight = 0;
+
+  const flushLine = () => {
+    if (!currentWords.length) return;
+    const ordered = currentWords.slice().sort((a, b) => a.x - b.x);
     lines.push({
       text: buildLineFromWords(ordered),
       y: currentY,
+      top: currentTop,
+      bottom: currentBottom,
       height: currentHeight,
       left: ordered[0]?.x || 0,
-      right: (ordered[ordered.length - 1]?.x || 0) + (ordered[ordered.length - 1]?.width || 0),
+      right: ordered[ordered.length - 1]?.right || ((ordered[ordered.length - 1]?.x || 0) + (ordered[ordered.length - 1]?.width || 0)),
     });
+    currentWords = [];
+    currentTop = null;
+    currentBottom = null;
+    currentY = null;
+    currentHeight = 0;
+  };
+
+  for (const entry of sorted) {
+    if (!currentWords.length) {
+      currentWords = [entry];
+      currentTop = entry.top;
+      currentBottom = entry.bottom;
+      currentY = entry.y;
+      currentHeight = entry.height || 10;
+      continue;
+    }
+
+    const overlap = Math.min(currentBottom, entry.bottom) - Math.max(currentTop, entry.top);
+    const bandHeight = Math.max(0, currentBottom - currentTop);
+    const entryHeight = Math.max(0, entry.bottom - entry.top);
+    const minHeight = Math.min(bandHeight || currentHeight || 0, entryHeight || entry.height || 0);
+    const currentMid = ((currentTop || 0) + (currentBottom || 0)) / 2;
+    const entryMid = ((entry.top || 0) + (entry.bottom || 0)) / 2;
+    const midpointDistance = Math.abs(entryMid - currentMid);
+    const sameVisualLine = overlap >= Math.max(1.2, minHeight * 0.18)
+      || midpointDistance <= Math.max(3.4, Math.max(currentHeight || 0, entry.height || 0) * 0.58);
+
+    if (sameVisualLine) {
+      currentWords.push(entry);
+      currentTop = Math.min(currentTop, entry.top);
+      currentBottom = Math.max(currentBottom, entry.bottom);
+      currentY = Math.max(currentY, entry.y);
+      currentHeight = Math.max(currentHeight, entry.height || 10);
+    } else {
+      flushLine();
+      currentWords = [entry];
+      currentTop = entry.top;
+      currentBottom = entry.bottom;
+      currentY = entry.y;
+      currentHeight = entry.height || 10;
+    }
   }
+  flushLine();
 
   const filteredLines = mergeDecorativeInitialLines(
-    lines.map((l) => ({ ...l, text: String(l.text || "").trim() })).filter((l) => l.text)
+    lines.map((line) => ({ ...line, text: String(line.text || "").trim() })).filter((line) => line.text)
   );
-  const avgH = filteredLines.reduce((s, l) => s + (l.height || 0), 0) / Math.max(1, filteredLines.length);
-  const leftVals = filteredLines.map((l) => l.left).sort((a, b) => a - b);
+  const avgH = filteredLines.reduce((sum, line) => sum + (line.height || 0), 0) / Math.max(1, filteredLines.length);
+  const leftVals = filteredLines.map((line) => line.left).sort((a, b) => a - b);
   const baseLeft = leftVals[Math.floor(leftVals.length * 0.2)] || 0;
 
   const blocks = [];
-  let paragraph = [], prevLine = null;
+  let paragraph = [];
+  let prevLine = null;
   const pushParagraph = () => {
     if (!paragraph.length) return;
     blocks.push({ type: "paragraph", text: paragraph.join(" ").replace(/\s+([,.;:!?])/g, "$1").trim() });
     paragraph = [];
   };
+
   for (const line of filteredLines) {
     const text = line.text;
     const isDialogue = /^[-–—]\s*/.test(text);
     const isCentered = /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
     const indent = line.left - baseLeft;
-    const gap = prevLine ? Math.abs(prevLine.y - line.y) : 0;
-    const strongBreak = prevLine && gap > Math.max(avgH * 1.45, 14);
-    const indentBreak = indent > Math.max(avgH * 1.2, 16);
-    if (isDialogue) { pushParagraph(); blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") }); }
-    else if (isCentered) { pushParagraph(); blocks.push({ type: "centered", text }); }
-    else { if (strongBreak || indentBreak) pushParagraph(); paragraph.push(text); }
+    const gap = prevLine ? Math.abs((Number(prevLine?.bottom ?? prevLine?.y ?? 0)) - (Number(line?.top ?? line?.y ?? 0))) : 0;
+    const strongBreak = prevLine && gap > Math.max(avgH * 1.35, 13);
+    const indentBreak = indent > Math.max(avgH * 1.15, 15);
+
+    if (isDialogue) {
+      pushParagraph();
+      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
+    } else if (isCentered) {
+      pushParagraph();
+      blocks.push({ type: "centered", text });
+    } else {
+      if (strongBreak || indentBreak) pushParagraph();
+      paragraph.push(text);
+    }
     prevLine = line;
   }
   pushParagraph();
 
-  const plainText = blocks.map((b) => b.text).join("\n\n").trim();
+  const plainText = blocks.map((block) => block.text).join("\n\n").trim();
   const charCount = plainText.replace(/\s+/g, "").length;
   if (!blocks.length || charCount < 18) return { html: "", text: plainText, charCount, renderMode: "pdf" };
 
-  const html = blocks.map((b) => {
-    if (b.type === "dialogue") return `<p class="dialogue">${escapeHtml(b.text)}</p>`;
-    if (b.type === "centered") return `<p class="centered">${escapeHtml(b.text)}</p>`;
-    return `<p>${escapeHtml(b.text)}</p>`;
+  const html = blocks.map((block) => {
+    if (block.type === "dialogue") return `<p class="dialogue">${escapeHtml(block.text)}</p>`;
+    if (block.type === "centered") return `<p class="centered">${escapeHtml(block.text)}</p>`;
+    return `<p>${escapeHtml(block.text)}</p>`;
   }).join("");
   return { html, text: plainText, charCount, renderMode: "text" };
 }
@@ -3952,6 +4067,7 @@ function attachEvents() {
     const toggleBtn = e.target.closest("[data-toggle-book]");
     const pdfBtn = e.target.closest("[data-toggle-pdf]");
     const editBtn = e.target.closest("[data-edit-book]");
+    const deleteBtn = e.target.closest("[data-delete-book]");
     if (openBtn) {
       if (state.openingBookId) return;
       const b = getBookById(openBtn.dataset.openBook);
@@ -3971,7 +4087,8 @@ function attachEvents() {
     if (reviewBtn) { await openBookReviewModal(reviewBtn.dataset.reviewBook); return; }
     if (toggleBtn) { await toggleBookPublished(toggleBtn.dataset.toggleBook); return; }
     if (pdfBtn) { await toggleBookPdfAllowed(pdfBtn.dataset.togglePdf); return; }
-    if (editBtn) { await openEditBookModal(editBtn.dataset.editBook); }
+    if (editBtn) { await openEditBookModal(editBtn.dataset.editBook); return; }
+    if (deleteBtn) { await deleteBook(deleteBtn.dataset.deleteBook); }
   });
 
   // Délégations — signets
