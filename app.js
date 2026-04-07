@@ -250,10 +250,11 @@ const state = {
   readingCheckShowExternal: false,
   readingCheckViewMode: "student",
   usersReadingOverviewData: null,
+  readingCheckOverviewCache: {},
   loadingUsersReadingOverview: false,
   selectedReadingCheckOverviewEmail: "",
   readingCheckGlobalFilterMode: "all",
-  readingCheckOverviewBookId: "all",
+  readingCheckOverviewBookId: "",
   selectedBookReviewEmail: "",
   bookReviewData: null,
   loadingBookReviewId: "",
@@ -519,11 +520,12 @@ function resetAdminState() {
   state.selectedReadingCheckOverviewEmail = "";
   state.readingCheckData = null;
   state.usersReadingOverviewData = null;
+  state.readingCheckOverviewCache = {};
   state.loadingReadingCheckEmail = "";
   state.loadingUsersReadingOverview = false;
   state.readingCheckViewMode = "student";
   state.readingCheckGlobalFilterMode = "all";
-  state.readingCheckOverviewBookId = "all";
+  state.readingCheckOverviewBookId = "";
   state.selectedBookReviewEmail = "";
   state.bookReviewData = null;
   state.loadingBookReviewId = "";
@@ -533,7 +535,7 @@ function resetAdminState() {
   state.bookReviewShowExternal = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
-  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "all";
+  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "";
   if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
@@ -1034,25 +1036,57 @@ function getSortedReadingCheckUsers() {
     .sort((left, right) => compareReadingCheckUsers(left, right, sortMode));
 }
 
+
+function getReadingCheckOverviewSelectableBooks() {
+  const sourceBooks = Array.isArray(state.books) ? state.books : [];
+  const books = sourceBooks
+    .filter((book) => !!String(book?.bookId || ""))
+    .filter((book) => book?.published !== false)
+    .map((book) => ({
+      bookId: String(book.bookId || ""),
+      title: String(book.title || book.bookId || "Roman"),
+      author: String(book.author || ""),
+      restrictedAccess: !!book.restrictedAccess,
+    }));
+  const seen = new Set();
+  return books.filter((book) => {
+    if (!book.bookId || seen.has(book.bookId)) return false;
+    seen.add(book.bookId);
+    return true;
+  });
+}
+
 function getReadingCheckOverviewSelectedBookId() {
-  const value = String(dom.readingCheckOverviewBookSelect?.value || state.readingCheckOverviewBookId || "all");
-  state.readingCheckOverviewBookId = value || "all";
+  const selectableBooks = getReadingCheckOverviewSelectableBooks();
+  const firstBookId = selectableBooks[0]?.bookId || "";
+  const value = String(dom.readingCheckOverviewBookSelect?.value || state.readingCheckOverviewBookId || firstBookId || "");
+  const allowed = new Set(selectableBooks.map((book) => String(book.bookId || "")));
+  const nextValue = allowed.has(value) ? value : firstBookId;
+  state.readingCheckOverviewBookId = nextValue || "";
+  if (dom.readingCheckOverviewBookSelect && dom.readingCheckOverviewBookSelect.value !== state.readingCheckOverviewBookId) {
+    dom.readingCheckOverviewBookSelect.value = state.readingCheckOverviewBookId;
+  }
   return state.readingCheckOverviewBookId;
 }
 
 function getReadingCheckOverviewBooks() {
-  return Array.isArray(state.usersReadingOverviewData?.books) ? state.usersReadingOverviewData.books : [];
+  const payloadBooks = Array.isArray(state.usersReadingOverviewData?.books) ? state.usersReadingOverviewData.books : [];
+  if (payloadBooks.length) return payloadBooks;
+  return getReadingCheckOverviewSelectableBooks();
 }
 
-function getReadingCheckOverviewBookMeta(bookId) {
-  if (!bookId || bookId === "all") return null;
-  return getReadingCheckOverviewBooks().find((book) => String(book.bookId || "") === String(bookId)) || null;
+function getReadingCheckOverviewBookMeta(bookId = getReadingCheckOverviewSelectedBookId()) {
+  if (!bookId) return null;
+  return getReadingCheckOverviewBooks().find((book) => String(book.bookId || "") === String(bookId))
+    || getReadingCheckOverviewSelectableBooks().find((book) => String(book.bookId || "") === String(bookId))
+    || null;
 }
 
 function getReadingCheckOverviewUserBookStatus(user, bookId = getReadingCheckOverviewSelectedBookId()) {
-  if (!user || !bookId || bookId === "all") return null;
+  if (!user || !bookId) return null;
   const statuses = Array.isArray(user.bookStatuses) ? user.bookStatuses : [];
-  return statuses.find((item) => String(item.bookId || "") === String(bookId)) || null;
+  return statuses.find((item) => String(item.bookId || "") === String(bookId))
+    || (String(user.bookId || "") === String(bookId) ? user : null);
 }
 
 function getReadingCheckOverviewEffectiveStatus(user, bookId = getReadingCheckOverviewSelectedBookId()) {
@@ -1066,9 +1100,8 @@ function getReadingCheckOverviewEffectiveActivityAt(user, bookId = getReadingChe
 }
 
 function getReadingCheckOverviewScopeLabel() {
-  const bookId = getReadingCheckOverviewSelectedBookId();
-  if (!bookId || bookId === "all") return "Tous les romans visibles";
-  return getReadingCheckOverviewBookMeta(bookId)?.title || "Roman sélectionné";
+  const selectedBook = getReadingCheckOverviewBookMeta(getReadingCheckOverviewSelectedBookId());
+  return selectedBook?.title || "Roman sélectionné";
 }
 
 function compareReadingCheckOverviewUsers(left, right, sortMode = "name") {
@@ -1104,7 +1137,6 @@ function getBaseReadingCheckOverviewUsers({ applyStatusFilter = true, applySearc
   const sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
   const filterMode = dom.readingCheckGlobalFilterSelect?.value || state.readingCheckGlobalFilterMode || "all";
   const showExternal = !!dom.readingCheckShowExternalInput?.checked;
-  const bookId = getReadingCheckOverviewSelectedBookId();
   state.readingCheckSortMode = sortMode;
   state.readingCheckGlobalFilterMode = filterMode;
   state.readingCheckShowExternal = showExternal;
@@ -1112,10 +1144,8 @@ function getBaseReadingCheckOverviewUsers({ applyStatusFilter = true, applySearc
   return [...payload.users]
     .filter((user) => {
       const effectiveConnectionAt = getEffectiveReadingCheckConnectionAt(user);
-      const effectiveStatus = getReadingCheckOverviewEffectiveStatus(user, bookId);
-      const scopedBook = getReadingCheckOverviewUserBookStatus(user, bookId);
+      const effectiveStatus = getReadingCheckOverviewEffectiveStatus(user);
       if (!showExternal && user.isExternal) return false;
-      if (bookId !== "all" && !scopedBook) return false;
       if (applyStatusFilter) {
         if (filterMode === "started" && !(effectiveStatus === "started" || effectiveStatus === "completed")) return false;
         if (filterMode === "not_started" && effectiveStatus !== "not_started") return false;
@@ -1133,7 +1163,6 @@ function getBaseReadingCheckOverviewUsers({ applyStatusFilter = true, applySearc
 function getFilteredReadingCheckOverviewUsers() {
   return getBaseReadingCheckOverviewUsers({ applyStatusFilter: true, applySearch: true });
 }
-
 function getPendingReadingCheckUser() {
   const selectedEmail = normalizeEmail(state.loadingReadingCheckEmail || state.selectedReadingCheckEmail);
   if (!selectedEmail) return state.pendingReadingCheckUser || null;
@@ -1184,20 +1213,21 @@ function getReadingCheckOverviewSummary() {
   };
 }
 
+
 function syncReadingCheckOverviewBookOptions() {
   if (!dom.readingCheckOverviewBookSelect) return;
-  const books = getReadingCheckOverviewBooks();
-  const currentValue = String(dom.readingCheckOverviewBookSelect.value || state.readingCheckOverviewBookId || "all");
-  const options = ['<option value="all">Tous les romans visibles</option>'].concat(
-    books.map((book) => `<option value="${escapeHtml(String(book.bookId || ""))}">${escapeHtml(String(book.title || book.bookId || "Roman"))}</option>`)
-  );
+  const books = getReadingCheckOverviewSelectableBooks();
+  const currentValue = String(dom.readingCheckOverviewBookSelect.value || state.readingCheckOverviewBookId || "");
+  const options = books.length
+    ? books.map((book) => `<option value="${escapeHtml(String(book.bookId || ""))}">${escapeHtml(String(book.title || book.bookId || "Roman"))}</option>`)
+    : ['<option value="">Aucun roman disponible</option>'];
   dom.readingCheckOverviewBookSelect.innerHTML = options.join("");
-  const allowed = new Set(["all", ...books.map((book) => String(book.bookId || ""))]);
-  const nextValue = allowed.has(currentValue) ? currentValue : "all";
+  const allowed = new Set(books.map((book) => String(book.bookId || "")));
+  const fallbackValue = books[0]?.bookId || "";
+  const nextValue = allowed.has(currentValue) ? currentValue : fallbackValue;
   dom.readingCheckOverviewBookSelect.value = nextValue;
   state.readingCheckOverviewBookId = nextValue;
 }
-
 function formatReadingCheckOverviewListMeta(user) {
   const bookId = getReadingCheckOverviewSelectedBookId();
   const scoped = getReadingCheckOverviewUserBookStatus(user, bookId);
@@ -1534,26 +1564,157 @@ async function loadStudentReadingOverview(targetEmail) {
   }
 }
 
+
+
+function getLatestKnownDate(values) {
+  const list = Array.isArray(values) ? values : [values];
+  let bestValue = "";
+  let bestTs = 0;
+  list.forEach((value) => {
+    const ts = parseDateMs(value);
+    if (ts > bestTs) {
+      bestTs = ts;
+      bestValue = value;
+    }
+  });
+  return bestValue || "";
+}
+
+function buildReadingCheckOverviewDataFromBookResponse(response) {
+  const book = response?.book || {};
+  const summary = response?.summary || {};
+  const assignableMap = new Map(
+    (Array.isArray(state.assignableUsers) ? state.assignableUsers : [])
+      .filter((user) => !!normalizeEmail(user?.email || ""))
+      .map((user) => [normalizeEmail(user.email), user])
+  );
+
+  const normalizedBook = {
+    bookId: String(book.bookId || ""),
+    title: String(book.title || book.bookId || "Roman"),
+    author: String(book.author || ""),
+    restrictedAccess: !!book.restrictedAccess,
+    eligibleUsers: Number(summary.eligibleUsers) || 0,
+  };
+
+  const users = (Array.isArray(response?.users) ? response.users : []).map((item) => {
+    const email = normalizeEmail(item?.email || "");
+    const profile = assignableMap.get(email) || {};
+    const firstName = normalizePersonName(item?.firstName || profile.firstName || "");
+    const lastName = normalizePersonName(item?.lastName || profile.lastName || "");
+    const hasProfile = !!(firstName || lastName);
+    const lastConnectionAt = profile.lastConnectionAt || "";
+    const bookStatus = {
+      bookId: normalizedBook.bookId,
+      title: normalizedBook.title,
+      status: String(item?.status || "not_started"),
+      currentPage: Number(item?.currentPage) || 0,
+      totalPages: Number(item?.totalPages) || 0,
+      progressPercent: Number(item?.progressPercent) || 0,
+      readingSeconds: Number(item?.readingSeconds) || 0,
+      sessionCount: Number(item?.sessionCount) || 0,
+      bookmarksCount: Number(item?.bookmarksCount) || 0,
+      notesCount: Number(item?.notesCount) || 0,
+      lastOpenedAt: item?.lastOpenedAt || "",
+      lastUpdated: item?.lastUpdated || "",
+      lastActivityAt: item?.lastUpdated || item?.lastOpenedAt || item?.completedAt || "",
+      lastPageVisited: Number(item?.lastPageVisited) || 0,
+      completedAt: item?.completedAt || "",
+    };
+    const aggregatedActivity = getLatestKnownDate([lastConnectionAt, bookStatus.lastActivityAt, item?.firstOpenedAt || ""]);
+    return {
+      email,
+      bookId: normalizedBook.bookId,
+      firstName,
+      lastName,
+      fullName: hasProfile ? `${lastName} ${firstName}`.trim() : email,
+      hasProfile,
+      isExternal: item?.isExternal !== undefined ? !!item.isExternal : !!profile.isExternal,
+      createdAt: profile.createdAt || "",
+      profileUpdatedAt: profile.updatedAt || "",
+      lastConnectionAt,
+      lastActivityAt: aggregatedActivity || "",
+      lastOpenedAt: item?.lastOpenedAt || "",
+      latestBookTitle: bookStatus.status === "not_started" ? "" : normalizedBook.title,
+      booksStarted: bookStatus.status === "not_started" ? 0 : 1,
+      booksCompleted: bookStatus.status === "completed" ? 1 : 0,
+      totalReadingSeconds: bookStatus.readingSeconds,
+      totalSessions: bookStatus.sessionCount,
+      totalBookmarks: bookStatus.bookmarksCount,
+      totalNotes: bookStatus.notesCount,
+      availableBookCount: 1,
+      bookStatuses: [bookStatus],
+      status: bookStatus.status,
+    };
+  });
+
+  return {
+    selectedBookId: normalizedBook.bookId,
+    summary: {
+      totalUsers: Number(summary.eligibleUsers) || users.length,
+      usersWithProfile: users.filter((user) => user.hasProfile).length,
+      usersWithoutProfile: users.filter((user) => !user.hasProfile).length,
+      connectedUsers: users.filter((user) => !!getEffectiveReadingCheckConnectionAt(user)).length,
+      neverConnectedUsers: users.filter((user) => !getEffectiveReadingCheckConnectionAt(user)).length,
+      startedUsers: Number(summary.startedUsers) || users.filter((user) => user.status === "started" || user.status === "completed").length,
+      notStartedUsers: Number(summary.notStartedUsers) || users.filter((user) => user.status === "not_started").length,
+      completedUsers: Number(summary.completedUsers) || users.filter((user) => user.status === "completed").length,
+    },
+    users,
+    books: [normalizedBook],
+  };
+}
+
 async function loadUsersReadingOverview(force = false) {
   if (!state.adminUnlocked || !canSeeAdminPanel()) return;
-  if (!force && state.usersReadingOverviewData?.users?.length) {
+  syncReadingCheckOverviewBookOptions();
+  const selectedBookId = getReadingCheckOverviewSelectedBookId();
+  if (!selectedBookId) {
+    state.usersReadingOverviewData = { selectedBookId: "", summary: {}, users: [], books: [] };
+    state.selectedReadingCheckOverviewEmail = "";
     renderReadingCheckGlobalSummary();
     renderReadingCheckUserList();
     renderReadingCheckDetails();
     return;
   }
+  if (!force && state.usersReadingOverviewData?.selectedBookId === selectedBookId && Array.isArray(state.usersReadingOverviewData?.users)) {
+    renderReadingCheckGlobalSummary();
+    renderReadingCheckUserList();
+    renderReadingCheckDetails();
+    return;
+  }
+  const cached = state.readingCheckOverviewCache?.[selectedBookId];
+  if (!force && cached && Array.isArray(cached.users)) {
+    state.usersReadingOverviewData = cached;
+    const firstCachedUser = getFilteredReadingCheckOverviewUsers()[0] || cached.users[0] || null;
+    if (!state.selectedReadingCheckOverviewEmail || !cached.users.some((user) => user.email === state.selectedReadingCheckOverviewEmail)) {
+      state.selectedReadingCheckOverviewEmail = firstCachedUser ? firstCachedUser.email : "";
+    }
+    renderReadingCheckGlobalSummary();
+    renderReadingCheckUserList();
+    renderReadingCheckDetails();
+    return;
+  }
+
   state.loadingUsersReadingOverview = true;
   renderReadingCheckGlobalSummary();
   renderReadingCheckUserList();
   renderReadingCheckDetails();
   setReadingCheckStatus("Chargement de la vue globale…", "", true);
   try {
-    const response = await jsonp("getUsersReadingOverview", { email: state.email, adminCode: state.adminCode });
+    const response = await jsonp("getBookReadingOverview", {
+      email: state.email,
+      adminCode: state.adminCode,
+      bookId: selectedBookId,
+    }, { timeoutMs: 60000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de charger la vue globale.");
-    state.usersReadingOverviewData = response;
-    syncReadingCheckOverviewBookOptions();
-    const firstUser = getFilteredReadingCheckOverviewUsers()[0] || (Array.isArray(response.users) ? response.users[0] : null);
-    state.selectedReadingCheckOverviewEmail = state.selectedReadingCheckOverviewEmail || (firstUser ? firstUser.email : "");
+    const normalized = buildReadingCheckOverviewDataFromBookResponse(response);
+    state.usersReadingOverviewData = normalized;
+    state.readingCheckOverviewCache[selectedBookId] = normalized;
+    const firstUser = getFilteredReadingCheckOverviewUsers()[0] || normalized.users[0] || null;
+    if (!state.selectedReadingCheckOverviewEmail || !normalized.users.some((user) => user.email === state.selectedReadingCheckOverviewEmail)) {
+      state.selectedReadingCheckOverviewEmail = firstUser ? firstUser.email : "";
+    }
     setReadingCheckStatus("");
   } catch (error) {
     console.error(error);
@@ -1567,7 +1728,6 @@ async function loadUsersReadingOverview(force = false) {
     renderReadingCheckDetails();
   }
 }
-
 function setReadingCheckViewMode(mode) {
   state.readingCheckViewMode = mode === "overview" ? "overview" : "student";
   updateReadingCheckModeUi();
@@ -1581,8 +1741,14 @@ function setReadingCheckViewMode(mode) {
   }
 }
 
+
 function refreshReadingCheckAfterFilterChange() {
   if (state.readingCheckViewMode === "overview") {
+    const selectedBookId = getReadingCheckOverviewSelectedBookId();
+    if (selectedBookId && selectedBookId !== String(state.usersReadingOverviewData?.selectedBookId || "")) {
+      void loadUsersReadingOverview(true);
+      return;
+    }
     const overviewUsers = getFilteredReadingCheckOverviewUsers();
     const firstOverviewUser = overviewUsers[0] || null;
     if (state.selectedReadingCheckOverviewEmail && !overviewUsers.some((user) => user.email === state.selectedReadingCheckOverviewEmail)) {
@@ -1612,7 +1778,7 @@ async function openReadingCheckModal() {
   dom.readingCheckModal.hidden = false;
   if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
   if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
-  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "all";
+  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "";
   if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
   if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
   state.readingCheckSortMode = "name";
@@ -1626,7 +1792,7 @@ async function openReadingCheckModal() {
   state.loadingReadingCheckEmail = "";
   state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
-  state.readingCheckOverviewBookId = "all";
+  state.readingCheckOverviewBookId = "";
   state.loadingAssignableUsers = true;
   setReadingCheckStatus("");
   setReadingCheckViewMode("student");
@@ -1642,7 +1808,7 @@ function closeReadingCheckModal() {
   state.loadingReadingCheckEmail = "";
   state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
-  state.readingCheckOverviewBookId = "all";
+  state.readingCheckOverviewBookId = "";
   state.readingCheckViewMode = "student";
   if (dom.readingCheckGlobalSummary) dom.readingCheckGlobalSummary.innerHTML = "";
   setReadingCheckStatus("");
