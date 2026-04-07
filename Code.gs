@@ -458,35 +458,31 @@ function handleGetStudentReadingOverview_(e) {
     if (book && book.bookId) bookMap[String(book.bookId)] = book;
   });
 
-  const progressMap = getProgressMapByEmailAndBook_();
-  const bookmarksMap = getBookmarksMapByEmailAndBook_();
-  const notesMap = getNotesMapByEmailAndBook_();
-  const pageJournalMap = getPageJournalMapByEmailAndBook_();
+  const progressMap = getProgressForEmail_(targetEmail);
+  const bookmarksMap = getBookmarksForEmail_(targetEmail);
+  const notesMap = getNotesForEmail_(targetEmail);
+  const pageJournalMap = getPageJournalForEmail_(targetEmail);
 
   const bookIds = {};
-  Object.keys(progressMap).forEach(function(key) {
-    var parts = key.split('||');
-    if (parts[0] === targetEmail && parts[1]) bookIds[parts[1]] = true;
+  Object.keys(progressMap).forEach(function(bookId) {
+    if (bookId) bookIds[bookId] = true;
   });
-  Object.keys(bookmarksMap).forEach(function(key) {
-    var parts = key.split('||');
-    if (parts[0] === targetEmail && parts[1]) bookIds[parts[1]] = true;
+  Object.keys(bookmarksMap).forEach(function(bookId) {
+    if (bookId) bookIds[bookId] = true;
   });
-  Object.keys(notesMap).forEach(function(key) {
-    var parts = key.split('||');
-    if (parts[0] === targetEmail && parts[1]) bookIds[parts[1]] = true;
+  Object.keys(notesMap).forEach(function(bookId) {
+    if (bookId) bookIds[bookId] = true;
   });
-  Object.keys(pageJournalMap).forEach(function(key) {
-    var parts = key.split('||');
-    if (parts[0] === targetEmail && parts[1]) bookIds[parts[1]] = true;
+  Object.keys(pageJournalMap).forEach(function(bookId) {
+    if (bookId) bookIds[bookId] = true;
   });
 
   const resultBooks = Object.keys(bookIds).map(function(bookId) {
-    const progress = progressMap[targetEmail + '||' + bookId] || null;
+    const progress = progressMap[bookId] || null;
     const bookMeta = bookMap[bookId] || {};
-    const bookmarks = bookmarksMap[targetEmail + '||' + bookId] || [];
-    const notes = notesMap[targetEmail + '||' + bookId] || [];
-    const pageSummary = pageJournalMap[targetEmail + '||' + bookId] || buildEmptyPageJournalSummary_();
+    const bookmarks = bookmarksMap[bookId] || [];
+    const notes = notesMap[bookId] || [];
+    const pageSummary = pageJournalMap[bookId] || buildEmptyPageJournalSummary_();
     const totalPages = progress ? Number(progress.totalPages) || 0 : Number(bookMeta.visiblePageCount) || Number(bookMeta.totalPages) || 0;
     return {
       bookId: bookId,
@@ -2084,6 +2080,109 @@ function getBookmarksMapByEmailAndBook_() {
   });
   Object.keys(map).forEach(function(key) {
     map[key].sort(function(a, b) { return a.page - b.page; });
+  });
+  return map;
+}
+
+
+function getProgressForEmail_(targetEmail) {
+  var sheet = getSheet_(SETTINGS.sheetNames.progress);
+  ensureProgressColumns_(sheet);
+  var map = {};
+  if (sheet.getLastRow() < 2) return map;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 13).getValues();
+  rows.forEach(function(row) {
+    var item = normalizeProgressRow_(row);
+    if (item.email !== targetEmail || !item.bookId) return;
+    map[item.bookId] = item;
+  });
+  return map;
+}
+
+function getBookmarksForEmail_(targetEmail) {
+  var sheet = getSheet_(SETTINGS.sheetNames.bookmarks);
+  ensureBookmarksExtraColumns_(sheet);
+  var map = {};
+  if (sheet.getLastRow() < 2) return map;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+  rows.forEach(function(row) {
+    var rowEmail = normalizeEmail_(row[0]);
+    if (rowEmail !== targetEmail) return;
+    var bookId = String(row[1] || '');
+    if (!bookId) return;
+    if (!map[bookId]) map[bookId] = [];
+    map[bookId].push({
+      page: Number(row[2]) || 1,
+      createdAt: row[3] || '',
+      label: String(row[4] || '')
+    });
+  });
+  Object.keys(map).forEach(function(bookId) {
+    map[bookId].sort(function(a, b) { return a.page - b.page; });
+  });
+  return map;
+}
+
+function getNotesForEmail_(targetEmail) {
+  var sheet = getSheet_(SETTINGS.sheetNames.notes);
+  var map = {};
+  if (sheet.getLastRow() < 2) return map;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
+  rows.forEach(function(row) {
+    var rowEmail = normalizeEmail_(row[0]);
+    if (rowEmail !== targetEmail) return;
+    var bookId = String(row[1] || '');
+    if (!bookId) return;
+    if (!map[bookId]) map[bookId] = [];
+    map[bookId].push({
+      page: Number(row[2]) || 1,
+      noteId: String(row[3] || ''),
+      noteText: String(row[4] || ''),
+      createdAt: row[5] || '',
+      updatedAt: row[6] || ''
+    });
+  });
+  Object.keys(map).forEach(function(bookId) {
+    map[bookId].sort(function(a, b) {
+      return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
+    });
+  });
+  return map;
+}
+
+function getPageJournalForEmail_(targetEmail) {
+  var sheet = getSheet_(SETTINGS.sheetNames.pageJournal);
+  ensurePageJournalColumns_(sheet);
+  var map = {};
+  if (sheet.getLastRow() < 2) return map;
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
+  rows.forEach(function(row) {
+    var rowEmail = normalizeEmail_(row[0]);
+    if (rowEmail !== targetEmail) return;
+    var bookId = String(row[1] || '');
+    var page = Number(row[2]) || 0;
+    if (!bookId || !page) return;
+    if (!map[bookId]) map[bookId] = { viewedPagesCount: 0, totalPageViews: 0, lastViewedPage: 0, lastViewedAt: '', topPages: [] };
+    map[bookId].viewedPagesCount += 1;
+    var views = Number(row[5]) || 0;
+    map[bookId].totalPageViews += views;
+    var lastViewedAt = row[4] || row[3] || '';
+    if (lastViewedAt && (!map[bookId].lastViewedAt || new Date(lastViewedAt) > new Date(map[bookId].lastViewedAt))) {
+      map[bookId].lastViewedAt = lastViewedAt;
+      map[bookId].lastViewedPage = page;
+    }
+    map[bookId].topPages.push({
+      page: page,
+      viewsCount: views,
+      readingSeconds: Number(row[6]) || 0,
+      lastViewedAt: lastViewedAt
+    });
+  });
+  Object.keys(map).forEach(function(bookId) {
+    map[bookId].topPages.sort(function(a, b) {
+      return b.viewsCount - a.viewsCount || b.readingSeconds - a.readingSeconds;
+    });
+    map[bookId].topPages = map[bookId].topPages.slice(0, 8);
   });
   return map;
 }
