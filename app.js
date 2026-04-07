@@ -1154,38 +1154,6 @@ function getBaseReadingCheckOverviewUsers({ applyStatusFilter = true, applySearc
       return true;
     })
     .sort((left, right) => compareReadingCheckOverviewUsers(left, right, sortMode));
-} = {}) {
-  const payload = state.usersReadingOverviewData;
-  if (!payload?.users) return [];
-  const query = String(dom.readingCheckSearchInput?.value || "").trim().toLowerCase();
-  const sortMode = dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name";
-  const filterMode = dom.readingCheckGlobalFilterSelect?.value || state.readingCheckGlobalFilterMode || "all";
-  const showExternal = !!dom.readingCheckShowExternalInput?.checked;
-  const bookId = getReadingCheckOverviewSelectedBookId();
-  state.readingCheckSortMode = sortMode;
-  state.readingCheckGlobalFilterMode = filterMode;
-  state.readingCheckShowExternal = showExternal;
-
-  return [...payload.users]
-    .filter((user) => {
-      const effectiveConnectionAt = getEffectiveReadingCheckConnectionAt(user);
-      const effectiveStatus = getReadingCheckOverviewEffectiveStatus(user, bookId);
-      const scopedBook = getReadingCheckOverviewUserBookStatus(user, bookId);
-      if (!showExternal && user.isExternal) return false;
-      if (bookId !== "all" && !scopedBook) return false;
-      if (applyStatusFilter) {
-        if (filterMode === "started" && !(effectiveStatus === "started" || effectiveStatus === "completed")) return false;
-        if (filterMode === "not_started" && effectiveStatus !== "not_started") return false;
-        if (filterMode === "completed" && effectiveStatus !== "completed") return false;
-        if (filterMode === "connected" && !effectiveConnectionAt) return false;
-        if (filterMode === "never_connected" && !!effectiveConnectionAt) return false;
-      }
-      if (!applySearch || !query) return true;
-      const haystack = `${getReadingCheckUserName(user)} ${user.email}`.toLowerCase();
-      return haystack.includes(query);
-    })
-    .sort((left, right) => compareReadingCheckOverviewUsers(left, right, sortMode));
-}
 
 function getFilteredReadingCheckOverviewUsers() {
   return getBaseReadingCheckOverviewUsers({ applyStatusFilter: true, applySearch: true });
