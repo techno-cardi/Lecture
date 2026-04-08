@@ -3150,7 +3150,7 @@ async function loadTextJson(book) {
   if (!book?.jsonPath) return null;
   const cacheKey = getBookAssetCacheKey(book, "json");
   if (runtimeCache.textDocs.has(cacheKey)) return runtimeCache.textDocs.get(cacheKey);
-  const response = await fetch(computePublicAssetUrl(book.jsonPath, book, "json"), { cache: "no-store" });
+  const response = await fetch(computePublicAssetUrl(book.jsonPath, book, "json"), { cache: "force-cache" });
   if (!response.ok) return null;
   const data = await response.json();
   runtimeCache.textDocs.set(cacheKey, data);
@@ -4402,6 +4402,7 @@ async function finishLoginFlow(options = {}) {
   const readerLoadingMessage = "Chargement du livre en cours. Veuillez patienter.";
   const cachedBooks = readBooksCache();
   const savedBook = buildBookSnapshot(savedBookState?.book);
+  const hasCachedBooks = !!cachedBooks?.books?.length;
 
   if (wantsDirectRestore) {
     switchScreen("reader");
@@ -4438,14 +4439,21 @@ async function finishLoginFlow(options = {}) {
     }
   } else {
     switchScreen("library");
-    renderLibraryLoadingState(libraryLoadingMessage);
+    if (hasCachedBooks) {
+      state.books = cachedBooks.books;
+      renderBookList();
+      renderAdminBooks();
+    } else {
+      renderLibraryLoadingState(libraryLoadingMessage);
+    }
   }
 
-  let loadedFromCache = false;
+  let loadedFromCache = hasCachedBooks;
   try {
     await refreshBooks();
+    loadedFromCache = false;
   } catch (error) {
-    if (!fromRestore && !wantsDirectRestore) {
+    if (!fromRestore && !wantsDirectRestore && !hasCachedBooks && !savedBook) {
       throw error;
     }
     if (cachedBooks?.books?.length) {
