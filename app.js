@@ -234,6 +234,7 @@ const state = {
   currentPdfRenderTask: null,
   assignableUsers: [],
   loadingAssignableUsers: false,
+  readingCheckUsersError: "",
   publishAssignedEmails: [],
   editAssignedEmails: [],
   openingBookId: "",
@@ -514,6 +515,7 @@ function resetAdminState() {
   state.adminUnlocked = false;
   state.adminCode = "";
   state.assignableUsers = [];
+  state.readingCheckUsersError = "";
   state.publishAssignedEmails = [];
   state.editAssignedEmails = [];
   state.selectedReadingCheckEmail = "";
@@ -836,6 +838,7 @@ async function loadAssignableUsers(force = false) {
     return;
   }
   state.loadingAssignableUsers = true;
+  state.readingCheckUsersError = "";
   renderReadingCheckUserList();
   renderReadingCheckDetails();
   try {
@@ -861,9 +864,7 @@ async function loadAssignableUsers(force = false) {
     renderReadingCheckGlobalSummary();
   } catch (error) {
     console.error(error);
-    if (dom.readingCheckUserList && !state.assignableUsers.length) {
-      dom.readingCheckUserList.innerHTML = `<div class="empty-state">Impossible de charger la liste des utilisateurs.</div>`;
-    }
+    state.readingCheckUsersError = error?.message || "Impossible de charger la liste des utilisateurs.";
   } finally {
     state.loadingAssignableUsers = false;
     renderReadingCheckUserList();
@@ -1307,6 +1308,10 @@ function renderReadingCheckUserList() {
   if (!dom.readingCheckUserList) return;
   if (state.loadingAssignableUsers && !state.assignableUsers.length) {
     dom.readingCheckUserList.innerHTML = `<div class="empty-state"><span class="inline-spinner" aria-hidden="true"></span><span>Liste d'utilisateurs en cours de chargement.</span></div>`;
+    return;
+  }
+  if (state.readingCheckUsersError && !state.assignableUsers.length) {
+    dom.readingCheckUserList.innerHTML = `<div class="empty-state">${escapeHtml(state.readingCheckUsersError)}</div>`;
     return;
   }
   const users = getSortedReadingCheckUsers();
@@ -3653,10 +3658,13 @@ async function unlockAdmin() {
   setAdminUnlockStatus("Vérification du code administrateur…");
 
   try {
+    const validation = await jsonp("validateAdmin", { email: state.email, adminCode: code });
+    if (!validation?.ok) throw new Error(validation?.message || "Code invalide.");
     const response = await jsonp("listBooks", { email: state.email, adminCode: code });
     if (!response?.ok) throw new Error(response?.message || "Code invalide.");
     state.adminUnlocked = true;
     state.adminCode = code;
+    state.readingCheckUsersError = "";
     state.books = Array.isArray(response.books) ? response.books : [];
     saveBooksCache();
     renderBookList();
