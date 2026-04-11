@@ -1,4 +1,4 @@
-﻿import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/build/pdf.min.mjs";
+import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.6.205/build/pdf.min.mjs";
 
 const CONFIG = window.READER_CONFIG || {};
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${CONFIG.pdfJsVersion || "5.6.205"}/build/pdf.worker.min.mjs`;
@@ -24,9 +24,9 @@ const MAX_PAGE_JOURNAL_SECONDS = 1800;
 const MAX_OFFLINE_QUEUE_ITEMS = 120;
 const BOOK_LOADING_WATCHDOG_MS = 15000;
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // DOM REFS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 const dom = {
   gate: document.getElementById("gate"),
   loginForm: document.getElementById("loginForm"),
@@ -203,9 +203,9 @@ const dom = {
   toast: document.getElementById("toast"),
 };
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // STATE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 const state = {
   email: "",
   userProfile: { firstName: "", lastName: "" },
@@ -297,9 +297,9 @@ const runtimeCache = {
   bookLists: new Map(),
 };
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // UTILITAIRES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -389,8 +389,8 @@ function getBookReviewUserName(user) {
 }
 
 function getBookReviewStatusLabel(status) {
-  if (status === "completed") return "TerminÃ©";
-  if (status === "started") return "CommencÃ©";
+  if (status === "completed") return "Terminé";
+  if (status === "started") return "Commencé";
   return "Non ouvert";
 }
 
@@ -402,7 +402,7 @@ function getBookReviewStatusClass(status) {
 
 function formatReadingDuration(totalSeconds) {
   const seconds = Math.max(0, Math.round(Number(totalSeconds) || 0));
-  if (!seconds) return "Aucune donnÃ©e";
+  if (!seconds) return "Aucune donnée";
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   if (hours) return `${hours} h ${String(minutes).padStart(2, "0")} min`;
@@ -474,12 +474,12 @@ function setBookLoading(isVisible, message = "Chargement du livre en cours. Veui
       state.bookLoadingWatchdogTimer = 0;
       if (!dom.bookLoadingOverlay || dom.bookLoadingOverlay.hidden) return;
       if ((state.textDoc || state.pdfDoc) && !state.currentPdfRenderTask) {
-        console.warn("Overlay de chargement refermÃ©e par le watchdog.");
+        console.warn("Overlay de chargement refermée par le watchdog.");
         setBookLoading(false);
         return;
       }
       if (dom.bookLoadingMessage) {
-        dom.bookLoadingMessage.textContent = "Chargement plus long que prÃ©vu. VÃ©rifie la connexion ou rÃ©essaie dans quelques secondes.";
+        dom.bookLoadingMessage.textContent = "Chargement plus long que prévu. Vérifie la connexion ou réessaie dans quelques secondes.";
       }
     }, BOOK_LOADING_WATCHDOG_MS);
   }
@@ -502,8 +502,8 @@ function updateInstallShortcutVisibility() {
 function showManualInstallHint() {
   if (dom.installBannerText) {
     dom.installBannerText.textContent = isIOSDevice()
-      ? 'Pour installer : appuie sur Partager puis "Sur l\'Ã©cran d\'accueil".'
-      : "Pour installer : utilise le menu du navigateur puis choisis Installer l'application ou Ajouter Ã  l'Ã©cran d'accueil.";
+      ? 'Pour installer : appuie sur Partager puis "Sur l\'écran d\'accueil".'
+      : "Pour installer : utilise le menu du navigateur puis choisis Installer l'application ou Ajouter à l'écran d'accueil.";
   }
   if (dom.installBannerBtn) dom.installBannerBtn.hidden = !!isIOSDevice() || !state.deferredInstallPrompt;
   if (dom.installBanner) dom.installBanner.hidden = false;
@@ -511,7 +511,7 @@ function showManualInstallHint() {
 
 async function triggerInstallShortcut() {
   if (isStandaloneMode()) {
-    showToast("L'application est dÃ©jÃ  installÃ©e sur cet appareil");
+    showToast("L'application est déjà installée sur cet appareil");
     return;
   }
   if (state.deferredInstallPrompt) {
@@ -527,7 +527,7 @@ async function triggerInstallShortcut() {
   showManualInstallHint();
   showToast(
     isIOSDevice()
-      ? "Appuie sur Partager puis Sur l'Ã©cran d'accueil."
+      ? "Appuie sur Partager puis Sur l'écran d'accueil."
       : "Utilise le menu du navigateur puis Installer l'application."
   );
 }
@@ -713,10 +713,10 @@ function getLibraryMetaText() {
     parts.push(state.adminUnlocked ? "mode administrateur actif" : "mode administrateur disponible");
   }
   if (state.booksCacheSavedAt) {
-    const prefix = state.booksLoadedFromCache ? "Cache local" : "DerniÃ¨re synchro";
+    const prefix = state.booksLoadedFromCache ? "Cache local" : "Dernière synchro";
     parts.push(`${prefix}: ${formatDateTimeWithRelative(state.booksCacheSavedAt)}`);
   }
-  return parts.filter(Boolean).join(" Â· ");
+  return parts.filter(Boolean).join(" · ");
 }
 
 function getLibrarySupportBannerHtml() {
@@ -729,7 +729,7 @@ function getLibrarySupportBannerHtml() {
           <p>${escapeHtml(action.message || `Impossible d'ouvrir ${getRecoverableBookLabel(action)}.`)}</p>
         </div>
         <div class="support-banner-actions">
-          <button class="secondary-btn" type="button" data-retry-last-open>RÃ©essayer</button>
+          <button class="secondary-btn" type="button" data-retry-last-open>Réessayer</button>
         </div>
       </div>
     `;
@@ -751,12 +751,12 @@ function clearLocalSupportData() {
 }
 
 function resetLocalDeviceData() {
-  const confirmed = window.confirm("RÃ©initialiser les donnÃ©es locales sur cet appareil? Les caches, la reprise de lecture et la file hors ligne seront effacÃ©s.");
+  const confirmed = window.confirm("Réinitialiser les données locales sur cet appareil? Les caches, la reprise de lecture et la file hors ligne seront effacés.");
   if (!confirmed) return;
   closeAdminSupportModal();
   clearLocalSupportData();
   logoutToGate();
-  showToast("DonnÃ©es locales rÃ©initialisÃ©es");
+  showToast("Données locales réinitialisées");
 }
 
 
@@ -828,7 +828,7 @@ function normalizeAssignedEmailList(value) {
 }
 
 function normalizePageRangeText(value) {
-  return String(value || "").replace(/[â€â€‘â€’â€“â€”âˆ’ï¹˜ï¹£ï¼]/g, "-");
+  return String(value || "").replace(/[‐‑‒–—−﹘﹣－]/g, "-");
 }
 
 function expandPageRanges(ranges, totalPages = 0) {
@@ -893,16 +893,16 @@ function renderHiddenPagesSummary(totalPages, hiddenPageRanges, target = dom.edi
   const visibleCount = Math.max(0, total - hiddenPages.length);
   if (!hiddenPages.length) {
     target.innerHTML = total
-      ? `<div class="hidden-pages-stats">Pages affichÃ©es aux Ã©lÃ¨ves: <strong>${visibleCount}</strong> / ${total}</div><div class="hidden-pages-empty">Aucune page masquÃ©e actuellement.</div>`
-      : `<div class="hidden-pages-empty">Aucune page masquÃ©e actuellement.</div>`;
+      ? `<div class="hidden-pages-stats">Pages affichées aux élèves: <strong>${visibleCount}</strong> / ${total}</div><div class="hidden-pages-empty">Aucune page masquée actuellement.</div>`
+      : `<div class="hidden-pages-empty">Aucune page masquée actuellement.</div>`;
     return;
   }
   const preview = hiddenPages.length <= 24
     ? hiddenPages.map((page) => `<span class="hidden-page-chip">${page}</span>`).join("")
     : `<div class="hidden-pages-range-text">${escapeHtml(compressPageList(hiddenPages))}</div>`;
   target.innerHTML = `
-    <div class="hidden-pages-stats">Pages affichÃ©es aux Ã©lÃ¨ves: <strong>${visibleCount}</strong> / ${total}</div>
-    <div class="hidden-pages-stats">Pages masquÃ©es: <strong>${hiddenPages.length}</strong></div>
+    <div class="hidden-pages-stats">Pages affichées aux élèves: <strong>${visibleCount}</strong> / ${total}</div>
+    <div class="hidden-pages-stats">Pages masquées: <strong>${hiddenPages.length}</strong></div>
     <div class="hidden-pages-preview">${preview}</div>
   `;
 }
@@ -929,8 +929,8 @@ function renderAssignableUsers(kind) {
 
   const selectedCount = normalizedSelected.length;
   summaryEl.textContent = selectedCount
-    ? `${selectedCount} utilisateur(s) sÃ©lectionnÃ©(s).`
-    : "Aucun utilisateur sÃ©lectionnÃ©.";
+    ? `${selectedCount} utilisateur(s) sélectionné(s).`
+    : "Aucun utilisateur sélectionné.";
 
   if (!enabled) {
     listEl.innerHTML = "";
@@ -945,7 +945,7 @@ function renderAssignableUsers(kind) {
   });
 
   if (!users.length) {
-    listEl.innerHTML = `<div class="assign-users-empty">Aucun utilisateur trouvÃ©.</div>`;
+    listEl.innerHTML = `<div class="assign-users-empty">Aucun utilisateur trouvé.</div>`;
     return;
   }
 
@@ -1041,7 +1041,7 @@ function formatRelativeTimeFromNow(value) {
   const ts = parseDateMs(value);
   if (!ts) return "";
   const deltaMinutes = Math.round((Date.now() - ts) / 60000);
-  if (deltaMinutes < 1) return "Ã  l'instant";
+  if (deltaMinutes < 1) return "à l'instant";
   if (deltaMinutes < 60) return `il y a ${deltaMinutes} min`;
   const deltaHours = Math.round(deltaMinutes / 60);
   if (deltaHours < 24) return `il y a ${deltaHours} h`;
@@ -1053,7 +1053,7 @@ function formatRelativeTimeFromNow(value) {
   return `il y a ${deltaYears} an${deltaYears > 1 ? "s" : ""}`;
 }
 
-function formatDateTimeWithRelative(value, emptyText = "Aucune donnÃ©e") {
+function formatDateTimeWithRelative(value, emptyText = "Aucune donnée") {
   if (!value) return emptyText;
   const full = formatDateTime(value);
   const relative = formatRelativeTimeFromNow(value);
@@ -1115,7 +1115,7 @@ function buildCsvContent(rows) {
 
 function downloadCsv(filename, rows) {
   if (!Array.isArray(rows) || rows.length < 2) {
-    showToast("Aucune donnÃ©e Ã  exporter");
+    showToast("Aucune donnée à exporter");
     return;
   }
   const blob = new Blob(["\uFEFF", buildCsvContent(rows)], { type: "text/csv;charset=utf-8" });
@@ -1127,7 +1127,7 @@ function downloadCsv(filename, rows) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 800);
-  showToast("Export CSV prÃªt");
+  showToast("Export CSV prêt");
 }
 
 function buildExportTimestamp() {
@@ -1150,12 +1150,12 @@ function exportReadingCheckCsv() {
       "Pages totales",
       "Temps de lecture (s)",
       "Temps de lecture",
-      "SÃ©ances",
+      "Séances",
       "Signets",
       "Notes",
-      "DerniÃ¨re activitÃ©",
-      "DerniÃ¨re ouverture",
-      "DerniÃ¨re connexion",
+      "Dernière activité",
+      "Dernière ouverture",
+      "Dernière connexion",
     ]];
     users.forEach((user) => {
       const scoped = getReadingCheckOverviewUserBookStatus(user, selectedBookId) || {};
@@ -1185,7 +1185,7 @@ function exportReadingCheckCsv() {
   const payload = state.readingCheckData;
   const selectedUser = payload?.user || getPendingReadingCheckUser();
   if (!selectedUser || !Array.isArray(payload?.books)) {
-    showToast("Choisis d'abord un Ã©lÃ¨ve");
+    showToast("Choisis d'abord un élève");
     return;
   }
   const books = getVisibleReadingCheckBooks(payload.books);
@@ -1200,16 +1200,16 @@ function exportReadingCheckCsv() {
     "Pages totales",
     "Temps de lecture (s)",
     "Temps de lecture",
-    "SÃ©ances",
-    "Moyenne sÃ©ance (s)",
-    "DerniÃ¨re activitÃ©",
-    "DerniÃ¨re ouverture",
-    "PremiÃ¨re ouverture",
+    "Séances",
+    "Moyenne séance (s)",
+    "Dernière activité",
+    "Dernière ouverture",
+    "Première ouverture",
     "Signets",
     "Notes",
     "Pages vues",
-    "DerniÃ¨re page vue",
-    "Pages les plus consultÃ©es",
+    "Dernière page vue",
+    "Pages les plus consultées",
   ]];
   books.forEach((book) => {
     const topPages = Array.isArray(book.topPages) ? book.topPages : [];
@@ -1258,11 +1258,11 @@ function exportBookReviewCsv() {
     "Pages totales",
     "Temps de lecture (s)",
     "Temps de lecture",
-    "SÃ©ances",
+    "Séances",
     "Signets",
     "Notes",
-    "DerniÃ¨re activitÃ©",
-    "DerniÃ¨re ouverture",
+    "Dernière activité",
+    "Dernière ouverture",
   ]];
   users.forEach((user) => {
     rows.push([
@@ -1293,8 +1293,8 @@ function setReadingCheckStatus(message = "", kind = "", showSpinner = false) {
 }
 
 function getReadingCheckStatusLabel(status) {
-  if (status === "completed") return "TerminÃ©";
-  if (status === "started") return "CommencÃ©";
+  if (status === "completed") return "Terminé";
+  if (status === "started") return "Commencé";
   return "Non lu";
 }
 
@@ -1313,19 +1313,19 @@ function formatReadingCheckConnectionText(user) {
     return `Connexion: ${formatDateTime(getEffectiveReadingCheckConnectionAt(user))}`;
   }
   if (user?.lastActivityAt || user?.lastUpdated || user?.lastOpenedAt) {
-    return `ActivitÃ©: ${formatDateTime(getEffectiveReadingCheckConnectionAt(user))}`;
+    return `Activité: ${formatDateTime(getEffectiveReadingCheckConnectionAt(user))}`;
   }
-  return "Jamais connectÃ©";
+  return "Jamais connecté";
 }
 
 function formatReadingCheckKnownConnectionValue(user) {
   if (user?.lastConnectionAt || user?.lastAuthAt) {
-    return formatDateTimeWithRelative(getEffectiveReadingCheckConnectionAt(user), "Jamais connectÃ©");
+    return formatDateTimeWithRelative(getEffectiveReadingCheckConnectionAt(user), "Jamais connecté");
   }
   if (user?.lastActivityAt || user?.lastUpdated || user?.lastOpenedAt) {
-    return `${formatDateTimeWithRelative(getEffectiveReadingCheckConnectionAt(user))} (activitÃ© dÃ©tectÃ©e)`;
+    return `${formatDateTimeWithRelative(getEffectiveReadingCheckConnectionAt(user))} (activité détectée)`;
   }
-  return "Jamais connectÃ©";
+  return "Jamais connecté";
 }
 
 function resetReadingCheckDetailScroll() {
@@ -1466,7 +1466,7 @@ function getReadingCheckOverviewEffectiveActivityAt(user, bookId = getReadingChe
 
 function getReadingCheckOverviewScopeLabel() {
   const selectedBook = getReadingCheckOverviewBookMeta(getReadingCheckOverviewSelectedBookId());
-  return selectedBook?.title || "Roman sÃ©lectionnÃ©";
+  return selectedBook?.title || "Roman sélectionné";
 }
 
 function compareReadingCheckOverviewUsers(left, right, sortMode = "name") {
@@ -1597,7 +1597,7 @@ function formatReadingCheckOverviewListMeta(user) {
   const bookId = getReadingCheckOverviewSelectedBookId();
   const scoped = getReadingCheckOverviewUserBookStatus(user, bookId);
   if (scoped && (scoped.lastActivityAt || scoped.lastUpdated || scoped.lastOpenedAt)) {
-    return `ActivitÃ© sur ce livre: ${formatDateTime(scoped.lastActivityAt || scoped.lastUpdated || scoped.lastOpenedAt)}`;
+    return `Activité sur ce livre: ${formatDateTime(scoped.lastActivityAt || scoped.lastUpdated || scoped.lastOpenedAt)}`;
   }
   return formatReadingCheckConnectionText(user);
 }
@@ -1611,7 +1611,7 @@ function renderReadingCheckGlobalSummary() {
     return;
   }
   if (state.loadingUsersReadingOverview && !state.usersReadingOverviewData?.users) {
-    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary reading-check-summary-wide reading-check-summary-wide-compact"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargementâ€¦</div></div></div>`;
+    dom.readingCheckGlobalSummary.innerHTML = `<div class="reading-check-summary reading-check-summary-wide reading-check-summary-wide-compact"><div class="reading-check-summary-card"><div class="reading-check-summary-value"><span class="inline-spinner" aria-hidden="true"></span> Chargement…</div></div></div>`;
     return;
   }
   if (!state.usersReadingOverviewData?.users) {
@@ -1625,12 +1625,12 @@ function renderReadingCheckGlobalSummary() {
       <div class="reading-check-global-summary-scope">${escapeHtml(summary.scopeLabel || "Tous les romans visibles")}</div>
     </div>
     <div class="reading-check-summary reading-check-summary-wide reading-check-summary-wide-compact">
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs visÃ©s</div><div class="reading-check-summary-value">${Number(summary.totalUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Ont commencÃ©</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs visés</div><div class="reading-check-summary-value">${Number(summary.totalUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Ont commencé</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">N'ont pas lu</div><div class="reading-check-summary-value">${Number(summary.notStartedUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">TerminÃ©s</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">ConnectÃ©s</div><div class="reading-check-summary-value">${Number(summary.connectedUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Jamais connectÃ©s</div><div class="reading-check-summary-value">${Number(summary.neverConnectedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Terminés</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Connectés</div><div class="reading-check-summary-value">${Number(summary.connectedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Jamais connectés</div><div class="reading-check-summary-value">${Number(summary.neverConnectedUsers) || 0}</div></div>
     </div>`;
 }
 
@@ -1680,7 +1680,7 @@ function renderReadingCheckUserList() {
   }
   const users = getSortedReadingCheckUsers();
   if (!users.length) {
-    dom.readingCheckUserList.innerHTML = `<div class="empty-state">Aucun utilisateur trouvÃ©.</div>`;
+    dom.readingCheckUserList.innerHTML = `<div class="empty-state">Aucun utilisateur trouvé.</div>`;
     return;
   }
   dom.readingCheckUserList.innerHTML = users.map((user) => {
@@ -1690,7 +1690,7 @@ function renderReadingCheckUserList() {
       <button class="reading-check-user-btn${active ? " is-active" : ""}" type="button" data-reading-check-email="${escapeHtml(user.email)}">
         <span class="reading-check-user-name">${escapeHtml(displayName)}</span>
         <span class="reading-check-user-email">${escapeHtml(user.email)}</span>
-        ${getEffectiveReadingCheckConnectionAt(user) ? `<span class="reading-check-user-email">${escapeHtml(`DerniÃ¨re connexion connue: ${formatDateTime(getEffectiveReadingCheckConnectionAt(user))}`)}</span>` : ""}
+        ${getEffectiveReadingCheckConnectionAt(user) ? `<span class="reading-check-user-email">${escapeHtml(`Dernière connexion connue: ${formatDateTime(getEffectiveReadingCheckConnectionAt(user))}`)}</span>` : ""}
         ${user.isExternal ? `<span class="badge hidden reading-check-external-badge">Externe</span>` : ""}
       </button>
     `;
@@ -1703,7 +1703,7 @@ function renderReadingCheckOverviewDetails() {
   const users = getFilteredReadingCheckOverviewUsers();
   const selected = users.find((user) => user.email === state.selectedReadingCheckOverviewEmail) || users[0] || null;
   if (!selected) {
-    dom.readingCheckDetails.innerHTML = `<div class="empty-state">Aucune donnÃ©e globale disponible pour le moment.</div>`;
+    dom.readingCheckDetails.innerHTML = `<div class="empty-state">Aucune donnée globale disponible pour le moment.</div>`;
     return;
   }
   state.selectedReadingCheckOverviewEmail = selected.email;
@@ -1711,7 +1711,7 @@ function renderReadingCheckOverviewDetails() {
   const selectedBook = getReadingCheckOverviewUserBookStatus(selected, selectedBookId);
   const selectedBookMeta = getReadingCheckOverviewBookMeta(selectedBookId);
   const scopedMode = !!selectedBook && selectedBookId !== "all";
-  const scopedTitle = selectedBookMeta?.title || selectedBook?.title || "Roman sÃ©lectionnÃ©";
+  const scopedTitle = selectedBookMeta?.title || selectedBook?.title || "Roman sélectionné";
   const scopedProgress = Number(selectedBook?.totalPages) > 0
     ? `${Math.max(0, Number(selectedBook?.currentPage) || 0)} / ${Math.max(0, Number(selectedBook?.totalPages) || 0)}`
     : `${Math.round(Number(selectedBook?.progressPercent) || 0)} %`;
@@ -1726,17 +1726,17 @@ function renderReadingCheckOverviewDetails() {
       ${scopedMode
         ? `<div class="reading-check-summary-card"><div class="reading-check-summary-label">Progression</div><div class="reading-check-summary-value">${escapeHtml(scopedProgress)}</div></div>
            <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selectedBook?.readingSeconds))}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">SÃ©ances</div><div class="reading-check-summary-value">${Number(selectedBook?.sessionCount) || 0}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">DerniÃ¨re connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">DerniÃ¨re activitÃ©</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(scopedActivity))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(selectedBook?.sessionCount) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(scopedActivity))}</div></div>
            <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(selectedBook?.bookmarksCount) || 0}</div></div>
            <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(selectedBook?.notesCount) || 0}</div></div>`
-        : `<div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencÃ©s</div><div class="reading-check-summary-value">${Number(selected.booksStarted) || 0}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres terminÃ©s</div><div class="reading-check-summary-value">${Number(selected.booksCompleted) || 0}</div></div>
+        : `<div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencés</div><div class="reading-check-summary-value">${Number(selected.booksStarted) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres terminés</div><div class="reading-check-summary-value">${Number(selected.booksCompleted) || 0}</div></div>
            <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selected.totalReadingSeconds))}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">SÃ©ances</div><div class="reading-check-summary-value">${Number(selected.totalSessions) || 0}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">DerniÃ¨re connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
-           <div class="reading-check-summary-card"><div class="reading-check-summary-label">DerniÃ¨re activitÃ©</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selected.lastActivityAt))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(selected.totalSessions) || 0}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière connexion</div><div class="reading-check-summary-value">${escapeHtml(formatReadingCheckKnownConnectionValue(selected))}</div></div>
+           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${escapeHtml(formatDateTimeWithRelative(selected.lastActivityAt))}</div></div>
            <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${Number(selected.totalBookmarks) || 0}</div></div>
            <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${Number(selected.totalNotes) || 0}</div></div>`}
     </div>
@@ -1745,7 +1745,7 @@ function renderReadingCheckOverviewDetails() {
         <div class="reading-check-book-head">
           <div>
             <h5>${escapeHtml(scopedTitle)}</h5>
-            <p>DonnÃ©es de lecture pour le roman sÃ©lectionnÃ©</p>
+            <p>Données de lecture pour le roman sélectionné</p>
           </div>
           <div class="badge ${getReadingCheckStatusClass(selectedBook?.status)}">${escapeHtml(getReadingCheckStatusLabel(selectedBook?.status))}</div>
         </div>
@@ -1753,21 +1753,21 @@ function renderReadingCheckOverviewDetails() {
           <div class="reading-check-stat"><div class="reading-check-stat-label">Page actuelle</div><div class="reading-check-stat-value">${Number(selectedBook?.currentPage) || 0}</div></div>
           <div class="reading-check-stat"><div class="reading-check-stat-label">Total de pages</div><div class="reading-check-stat-value">${Number(selectedBook?.totalPages) || 0}</div></div>
           <div class="reading-check-stat"><div class="reading-check-stat-label">Progression</div><div class="reading-check-stat-value">${Math.round(Number(selectedBook?.progressPercent) || 0)} %</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">DerniÃ¨re page visitÃ©e</div><div class="reading-check-stat-value">${Number(selectedBook?.lastPageVisited) || 0}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière page visitée</div><div class="reading-check-stat-value">${Number(selectedBook?.lastPageVisited) || 0}</div></div>
         </div>
       </article>` : ""}
       <article class="reading-check-book-card">
         <div class="reading-check-book-head">
           <div>
             <h5>Profil de l'utilisateur</h5>
-            <p>${selected.hasProfile ? "Nom et prÃ©nom complÃ©tÃ©s" : "Nom et prÃ©nom non complÃ©tÃ©s"}</p>
+            <p>${selected.hasProfile ? "Nom et prénom complétés" : "Nom et prénom non complétés"}</p>
           </div>
           <div class="badge ${selected.hasProfile ? "published" : "hidden"}">${selected.hasProfile ? "Profil complet" : "Profil incomplet"}</div>
         </div>
         <div class="reading-check-book-stats">
-          <div class="reading-check-stat"><div class="reading-check-stat-label">CrÃ©Ã© le</div><div class="reading-check-stat-value">${escapeHtml(formatDateTimeWithRelative(selected.createdAt))}</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">Profil modifiÃ© le</div><div class="reading-check-stat-value">${escapeHtml(formatDateTimeWithRelative(selected.profileUpdatedAt || selected.updatedAt))}</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernier livre actif</div><div class="reading-check-stat-value">${escapeHtml(selected.latestBookTitle || "Aucune donnÃ©e")}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Créé le</div><div class="reading-check-stat-value">${escapeHtml(formatDateTimeWithRelative(selected.createdAt))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Profil modifié le</div><div class="reading-check-stat-value">${escapeHtml(formatDateTimeWithRelative(selected.profileUpdatedAt || selected.updatedAt))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernier livre actif</div><div class="reading-check-stat-value">${escapeHtml(selected.latestBookTitle || "Aucune donnée")}</div></div>
           <div class="reading-check-stat"><div class="reading-check-stat-label">Type de compte</div><div class="reading-check-stat-value">${selected.isExternal ? "Externe" : "Interne"}</div></div>
         </div>
       </article>
@@ -1788,7 +1788,7 @@ function renderReadingCheckDetails() {
   const isLoading = !!state.loadingReadingCheckEmail;
 
   if (!selectedUser) {
-    dom.readingCheckDetails.innerHTML = `<div class="empty-state">SÃ©lectionne un Ã©lÃ¨ve pour consulter ses donnÃ©es de lecture.</div>`;
+    dom.readingCheckDetails.innerHTML = `<div class="empty-state">Sélectionne un élève pour consulter ses données de lecture.</div>`;
     return;
   }
 
@@ -1812,7 +1812,7 @@ function renderReadingCheckDetails() {
   const summary = computeReadingCheckSummaryFromBooks(books);
   const filtersHtml = filterOptions.length > 1 ? `
     <div class="reading-check-book-filter-block">
-      <div class="reading-check-book-filter-title">Livres Ã  afficher dans les statistiques</div>
+      <div class="reading-check-book-filter-title">Livres à afficher dans les statistiques</div>
       <div class="reading-check-book-filter-list">
         ${filterOptions.map((item) => {
           const checked = state.readingCheckBookFilters.includes(item.key);
@@ -1830,7 +1830,7 @@ function renderReadingCheckDetails() {
           const label = String(bookmark.label || "").trim();
           return `<div class="reading-check-chip">${label ? `<strong>${escapeHtml(label)}</strong>` : "<strong>Signet</strong>"}<span>Page ${page}</span></div>`;
         }).join("")}</div>`
-      : `<div class="empty-state">Aucun signet enregistrÃ©.</div>`;
+      : `<div class="empty-state">Aucun signet enregistré.</div>`;
     const notesHtml = notes.length
       ? `<div class="reading-check-note-list">${notes.map((note) => `
           <div class="reading-check-note">
@@ -1838,32 +1838,32 @@ function renderReadingCheckDetails() {
             <div class="reading-check-note-text">${escapeHtml(note.noteText || "")}</div>
           </div>
         `).join("")}</div>`
-      : `<div class="empty-state">Aucune note enregistrÃ©e.</div>`;
+      : `<div class="empty-state">Aucune note enregistrée.</div>`;
     return `
       <article class="reading-check-book-card">
         <div class="reading-check-book-head">
           <div>
             <h5>${escapeHtml(book.title || book.bookId || "Livre")}</h5>
-            <p>${book.author ? escapeHtml(book.author) : "Auteur non indiquÃ©"}</p>
+            <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
           </div>
           <div class="badge published">${Math.round(Number(book.progressPercent) || 0)} %</div>
         </div>
         <div class="reading-check-book-stats">
           <div class="reading-check-stat"><div class="reading-check-stat-label">Progression</div><div class="reading-check-stat-value">Page ${Number(book.currentPage) || 0} / ${Number(book.totalPages) || 0}</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">DerniÃ¨re ouverture</div><div class="reading-check-stat-value">${book.lastOpenedAt ? escapeHtml(formatDateTime(book.lastOpenedAt)) : "Aucune donnÃ©e"}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière ouverture</div><div class="reading-check-stat-value">${book.lastOpenedAt ? escapeHtml(formatDateTime(book.lastOpenedAt)) : "Aucune donnée"}</div></div>
           <div class="reading-check-stat"><div class="reading-check-stat-label">Temps de lecture</div><div class="reading-check-stat-value">${escapeHtml(formatReadingDuration(book.readingSeconds))}</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">PremiÃ¨re ouverture</div><div class="reading-check-stat-value">${book.firstOpenedAt ? escapeHtml(formatDateTime(book.firstOpenedAt)) : "Aucune donnÃ©e"}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Première ouverture</div><div class="reading-check-stat-value">${book.firstOpenedAt ? escapeHtml(formatDateTime(book.firstOpenedAt)) : "Aucune donnée"}</div></div>
         </div>
         <div class="reading-check-book-stats">
-          <div class="reading-check-stat"><div class="reading-check-stat-label">DerniÃ¨re activitÃ©</div><div class="reading-check-stat-value">${book.lastUpdated ? escapeHtml(formatDateTime(book.lastUpdated)) : "Aucune donnÃ©e"}</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">SÃ©ances</div><div class="reading-check-stat-value">${Number(book.sessionCount) || 0}</div></div>
-          <div class="reading-check-stat"><div class="reading-check-stat-label">Moyenne / sÃ©ance</div><div class="reading-check-stat-value">${escapeHtml(formatSessionAverage(book.averageSessionSeconds))}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière activité</div><div class="reading-check-stat-value">${book.lastUpdated ? escapeHtml(formatDateTime(book.lastUpdated)) : "Aucune donnée"}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Séances</div><div class="reading-check-stat-value">${Number(book.sessionCount) || 0}</div></div>
+          <div class="reading-check-stat"><div class="reading-check-stat-label">Moyenne / séance</div><div class="reading-check-stat-value">${escapeHtml(formatSessionAverage(book.averageSessionSeconds))}</div></div>
           <div class="reading-check-stat"><div class="reading-check-stat-label">Pages vues</div><div class="reading-check-stat-value">${Number(book.viewedPagesCount) || 0}</div></div>
         </div>
         <div class="reading-check-book-sections">
           <section class="reading-check-section">
-            <div class="reading-check-section-title">Pages les plus consultÃ©es</div>
-            ${(Array.isArray(book.topPages) && book.topPages.length) ? `<div class="reading-check-chip-list">${book.topPages.map((item) => `<div class="reading-check-chip"><strong>Page ${Number(item.page) || 0}</strong><span>${Number(item.viewsCount) || 0} vue(s)</span><span>${escapeHtml(formatReadingDuration(item.readingSeconds))}</span></div>`).join("")}</div>` : `<div class="empty-state">Aucune donnÃ©e de consultation.</div>`}
+            <div class="reading-check-section-title">Pages les plus consultées</div>
+            ${(Array.isArray(book.topPages) && book.topPages.length) ? `<div class="reading-check-chip-list">${book.topPages.map((item) => `<div class="reading-check-chip"><strong>Page ${Number(item.page) || 0}</strong><span>${Number(item.viewsCount) || 0} vue(s)</span><span>${escapeHtml(formatReadingDuration(item.readingSeconds))}</span></div>`).join("")}</div>` : `<div class="empty-state">Aucune donnée de consultation.</div>`}
           </section>
           <section class="reading-check-section">
             <div class="reading-check-section-title">Signets (${bookmarks.length})</div>
@@ -1875,11 +1875,11 @@ function renderReadingCheckDetails() {
           </section>
         </div>
       </article>`;
-  }).join("") : `<div class="empty-state">Aucun livre commencÃ© pour cet Ã©lÃ¨ve.</div>`;
+  }).join("") : `<div class="empty-state">Aucun livre commencé pour cet élève.</div>`;
 
   const loadingOverlay = isLoading ? `
     <div class="reading-check-overlay" aria-hidden="true">
-      <div class="reading-check-overlay-card"><span class="inline-spinner" aria-hidden="true"></span><span>Chargement des donnÃ©es de lectureâ€¦</span></div>
+      <div class="reading-check-overlay-card"><span class="inline-spinner" aria-hidden="true"></span><span>Chargement des données de lecture…</span></div>
     </div>` : "";
 
   dom.readingCheckDetails.innerHTML = `
@@ -1890,11 +1890,11 @@ function renderReadingCheckDetails() {
           <p>${escapeHtml(selectedUser.email || "")}</p>
         </div>
         <div class="reading-check-summary">
-          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencÃ©s</div><div class="reading-check-summary-value">${summary.booksStarted}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Livres commencés</div><div class="reading-check-summary-value">${summary.booksStarted}</div></div>
           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Signets</div><div class="reading-check-summary-value">${summary.totalBookmarks}</div></div>
           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Notes</div><div class="reading-check-summary-value">${summary.totalNotes}</div></div>
           <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps total</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(summary.totalReadingSeconds))}</div></div>
-          <div class="reading-check-summary-card"><div class="reading-check-summary-label">SÃ©ances</div><div class="reading-check-summary-value">${summary.totalSessions}</div></div>
+          <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${summary.totalSessions}</div></div>
         </div>
         ${filtersHtml}
         <div class="reading-check-book-list">${bookCards}</div>
@@ -1915,7 +1915,7 @@ async function loadStudentReadingOverview(targetEmail) {
   setReadingCheckStatus("");
   try {
     const response = await jsonp("getStudentReadingOverview", { email: state.email, adminCode: state.adminCode, targetEmail: email }, { timeoutMs: 45000 });
-    if (!response?.ok) throw new Error(response?.message || "Impossible de charger les donnÃ©es de lecture.");
+    if (!response?.ok) throw new Error(response?.message || "Impossible de charger les données de lecture.");
     state.readingCheckData = response;
     state.pendingReadingCheckUser = response.user || state.pendingReadingCheckUser;
     const books = Array.isArray(response.books) ? response.books : [];
@@ -2069,7 +2069,7 @@ async function loadUsersReadingOverview(force = false) {
   renderReadingCheckGlobalSummary();
   renderReadingCheckUserList();
   renderReadingCheckDetails();
-  setReadingCheckStatus("Chargement de la vue globaleâ€¦", "", true);
+  setReadingCheckStatus("Chargement de la vue globale…", "", true);
   try {
     const response = await jsonp("getBookReadingOverview", {
       email: state.email,
@@ -2143,7 +2143,7 @@ function refreshReadingCheckAfterFilterChange() {
 
 async function openReadingCheckModal() {
   if (!state.adminUnlocked || !canSeeAdminPanel()) {
-    showToast("DÃ©verrouille d'abord le module administrateur");
+    showToast("Déverrouille d'abord le module administrateur");
     return;
   }
   if (!dom.readingCheckModal) return;
@@ -2189,11 +2189,11 @@ function renderBookReviewSummary() {
   const summary = payload.summary || {};
   dom.bookReviewSummary.innerHTML = `
     <div class="reading-check-summary book-review-summary-grid">
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs autorisÃ©s</div><div class="reading-check-summary-value">${Number(summary.eligibleUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">CommencÃ©s</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Utilisateurs autorisés</div><div class="reading-check-summary-value">${Number(summary.eligibleUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Commencés</div><div class="reading-check-summary-value">${Number(summary.startedUsers) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Avec notes</div><div class="reading-check-summary-value">${Number(summary.withNotesUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">TerminÃ©s</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">SÃ©ances</div><div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Terminés</div><div class="reading-check-summary-value">${Number(summary.completedUsers) || 0}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Séances</div><div class="reading-check-summary-value">${Number(summary.totalSessions) || 0}</div></div>
     </div>
   `;
 }
@@ -2265,20 +2265,20 @@ function renderBookReviewDetails() {
   if (!dom.bookReviewDetails) return;
   const payload = state.bookReviewData;
   if (!payload?.book) {
-    dom.bookReviewDetails.innerHTML = `<div class="empty-state">Choisis un livre pour consulter l'activitÃ© de lecture.</div>`;
+    dom.bookReviewDetails.innerHTML = `<div class="empty-state">Choisis un livre pour consulter l'activité de lecture.</div>`;
     return;
   }
   const book = payload.book;
   const selected = (payload.users || []).find((user) => user.email === state.selectedBookReviewEmail) || null;
   const countsLine = `${Number(book.visiblePageCount) || Number(book.totalPages) || 0} page(s) visibles${Number(book.hiddenPagesCount) ? ` sur ${Number(book.totalPages) || 0}` : ""}`;
-  const hiddenLine = Number(book.hiddenPagesCount) ? `Pages masquÃ©es: ${escapeHtml(book.hiddenPageRanges || book.hiddenPagesList?.join(", ") || "")}` : "Aucune page masquÃ©e";
+  const hiddenLine = Number(book.hiddenPagesCount) ? `Pages masquées: ${escapeHtml(book.hiddenPageRanges || book.hiddenPagesList?.join(", ") || "")}` : "Aucune page masquée";
   if (!selected) {
     dom.bookReviewDetails.innerHTML = `
       <div class="reading-check-user-heading">
         <h4>${escapeHtml(book.title || "Livre")}</h4>
         <p>${escapeHtml(countsLine)} - ${escapeHtml(hiddenLine)}</p>
       </div>
-      <div class="empty-state">Choisis un Ã©lÃ¨ve dans la liste pour consulter ses donnÃ©es sur ce livre.</div>
+      <div class="empty-state">Choisis un élève dans la liste pour consulter ses données sur ce livre.</div>
     `;
     return;
   }
@@ -2290,7 +2290,7 @@ function renderBookReviewDetails() {
         const label = String(bookmark.label || "").trim();
         return `<div class="reading-check-chip">${label ? `<strong>${escapeHtml(label)}</strong>` : "<strong>Signet</strong>"}<span>Page ${page}</span></div>`;
       }).join("")}</div>`
-    : `<div class="empty-state">Aucun signet enregistrÃ©.</div>`;
+    : `<div class="empty-state">Aucun signet enregistré.</div>`;
   const notesHtml = notes.length
     ? `<div class="reading-check-note-list">${notes.map((note) => `
         <div class="reading-check-note">
@@ -2298,7 +2298,7 @@ function renderBookReviewDetails() {
           <div class="reading-check-note-text">${escapeHtml(note.noteText || "")}</div>
         </div>
       `).join("")}</div>`
-    : `<div class="empty-state">Aucune note enregistrÃ©e.</div>`;
+    : `<div class="empty-state">Aucune note enregistrée.</div>`;
   dom.bookReviewDetails.innerHTML = `
     <div class="reading-check-user-heading">
       <h4>${escapeHtml(getBookReviewUserName(selected))}</h4>
@@ -2308,7 +2308,7 @@ function renderBookReviewDetails() {
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Statut</div><div class="reading-check-summary-value">${escapeHtml(getBookReviewStatusLabel(selected.status))}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Progression</div><div class="reading-check-summary-value">${Number(selected.currentPage) || 0} / ${Number(selected.totalPages) || 0}</div></div>
       <div class="reading-check-summary-card"><div class="reading-check-summary-label">Temps de lecture</div><div class="reading-check-summary-value">${escapeHtml(formatReadingDuration(selected.readingSeconds))}</div></div>
-      <div class="reading-check-summary-card"><div class="reading-check-summary-label">DerniÃ¨re activitÃ©</div><div class="reading-check-summary-value">${selected.lastUpdated ? escapeHtml(formatDateTime(selected.lastUpdated)) : "Aucune donnÃ©e"}</div></div>
+      <div class="reading-check-summary-card"><div class="reading-check-summary-label">Dernière activité</div><div class="reading-check-summary-value">${selected.lastUpdated ? escapeHtml(formatDateTime(selected.lastUpdated)) : "Aucune donnée"}</div></div>
     </div>
     <div class="reading-check-book-card book-review-detail-card">
       <div class="reading-check-book-head">
@@ -2319,7 +2319,7 @@ function renderBookReviewDetails() {
         <div class="badge ${getBookReviewStatusClass(selected.status)}">${Math.round(Number(selected.progressPercent) || 0)} %</div>
       </div>
       <div class="reading-check-book-stats">
-        <div class="reading-check-stat"><div class="reading-check-stat-label">DerniÃ¨re ouverture</div><div class="reading-check-stat-value">${selected.lastOpenedAt ? escapeHtml(formatDateTime(selected.lastOpenedAt)) : "Aucune donnÃ©e"}</div></div>
+        <div class="reading-check-stat"><div class="reading-check-stat-label">Dernière ouverture</div><div class="reading-check-stat-value">${selected.lastOpenedAt ? escapeHtml(formatDateTime(selected.lastOpenedAt)) : "Aucune donnée"}</div></div>
         <div class="reading-check-stat"><div class="reading-check-stat-label">Signets</div><div class="reading-check-stat-value">${bookmarks.length}</div></div>
         <div class="reading-check-stat"><div class="reading-check-stat-label">Notes</div><div class="reading-check-stat-value">${notes.length}</div></div>
       </div>
@@ -2349,7 +2349,7 @@ async function loadBookReadingOverview(bookId) {
   state.loadingBookReviewId = targetBookId;
   if (dom.bookReviewStatus) {
     dom.bookReviewStatus.className = "save-status reading-check-status";
-    dom.bookReviewStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement du suivi du livreâ€¦</span>`;
+    dom.bookReviewStatus.innerHTML = `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement du suivi du livre…</span>`;
   }
   renderAdminBooks();
   try {
@@ -2572,7 +2572,7 @@ function recoverReaderAfterInterruption(reason = "resume") {
   state.pinchActive = false;
   normalizeReaderChrome();
   if (dom.bookLoadingOverlay && !dom.bookLoadingOverlay.hidden && (state.textDoc || state.pdfDoc) && !state.currentPdfRenderTask) {
-    console.warn(`Overlay de chargement refermÃ©e aprÃ¨s reprise (${reason}).`);
+    console.warn(`Overlay de chargement refermée après reprise (${reason}).`);
     setBookLoading(false);
   }
 }
@@ -2760,9 +2760,9 @@ function stopReadingTracking() {
   state.readingTickMs = 0;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// SESSION â€” PERSIST / RESTORE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
+// SESSION — PERSIST / RESTORE
+// ════════════════════════════════════════
 function saveSession() {
   if (!state.email) return;
   try {
@@ -2774,7 +2774,7 @@ function saveSession() {
         lastName: state.userProfile?.lastName || "",
       },
     }));
-  } catch (_) { /* localStorage peut Ãªtre dÃ©sactivÃ© */ }
+  } catch (_) { /* localStorage peut être désactivé */ }
 }
 
 function clearSession() {
@@ -2820,9 +2820,9 @@ function clearCurrentBookState() {
   try { localStorage.removeItem(LS_CURRENT_BOOK_KEY); } catch (_) {}
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// JSONP â€” appels GET vers Apps Script
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
+// JSONP — appels GET vers Apps Script
+// ════════════════════════════════════════
 function jsonp(action, params = {}, options = {}) {
   return new Promise((resolve, reject) => {
     const baseUrl = CONFIG.appsScriptUrl;
@@ -2846,7 +2846,7 @@ function jsonp(action, params = {}, options = {}) {
     const timeoutMs = Math.max(3000, Number(options.timeoutMs) || 22000);
     const timeoutId = window.setTimeout(() => {
       cleanup();
-      reject(new Error("DÃ©lai dÃ©passÃ© lors de la connexion au service."));
+      reject(new Error("Délai dépassé lors de la connexion au service."));
     }, timeoutMs);
 
     window[callbackName] = (payload) => {
@@ -2866,11 +2866,11 @@ function jsonp(action, params = {}, options = {}) {
   });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // POST vers Apps Script
 // CORRECTION CRITIQUE : URLSearchParams au lieu de FormData
-// â†’ e.parameter dans Apps Script reÃ§oit tous les champs correctement
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// → e.parameter dans Apps Script reçoit tous les champs correctement
+// ════════════════════════════════════════
 async function postAdminAction(params) {
   const baseUrl = CONFIG.appsScriptUrl;
   if (!baseUrl) throw new Error("URL Apps Script absente.");
@@ -2882,7 +2882,7 @@ async function postAdminAction(params) {
     }
   }
 
-  // On tente d'abord sans no-cors pour lire la rÃ©ponse.
+  // On tente d'abord sans no-cors pour lire la réponse.
   // Si CORS bloque (peu probable sur Apps Script deployed as Anyone),
   // on retombe sur no-cors en fallback silencieux.
   try {
@@ -2891,18 +2891,18 @@ async function postAdminAction(params) {
     try {
       return JSON.parse(text);
     } catch (_) {
-      return { ok: false, message: "RÃ©ponse non JSON du service." };
+      return { ok: false, message: "Réponse non JSON du service." };
     }
   } catch (_) {
-    // Fallback no-cors si CORS non disponible â€” response opaque mais la requÃªte passe
+    // Fallback no-cors si CORS non disponible — response opaque mais la requête passe
     await fetch(baseUrl, { method: "POST", mode: "no-cors", body });
-    return { ok: true, opaque: true, message: "RequÃªte envoyÃ©e." };
+    return { ok: true, opaque: true, message: "Requête envoyée." };
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // AUTH & LIVRES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 async function auth(email) {
   return jsonp("auth", { email });
 }
@@ -2915,7 +2915,7 @@ async function refreshBooks(options = {}) {
   if (state.booksRefreshPromise) return state.booksRefreshPromise;
 
   if (origin === "admin") {
-    setAdminBooksStatus("Actualisationâ€¦");
+    setAdminBooksStatus("Actualisation…");
     if (dom.reloadAdminBooksBtn) dom.reloadAdminBooksBtn.disabled = true;
   }
 
@@ -2935,15 +2935,15 @@ async function refreshBooks(options = {}) {
       renderAssignableUsers("publish");
       renderAssignableUsers("edit");
     }
-    if (origin === "admin") setAdminBooksStatus("Liste Ã  jour.", "success");
-    if (showFeedback) showToast("BibliothÃ¨que actualisÃ©e");
+    if (origin === "admin") setAdminBooksStatus("Liste à jour.", "success");
+    if (showFeedback) showToast("Bibliothèque actualisée");
     return state.books;
   })();
 
   try {
     return await state.booksRefreshPromise;
   } catch (error) {
-    if (origin === "admin") setAdminBooksStatus(error?.message || "Ã‰chec de l'actualisation.", "error");
+    if (origin === "admin") setAdminBooksStatus(error?.message || "Échec de l'actualisation.", "error");
     throw error;
   } finally {
     state.booksRefreshPromise = null;
@@ -2951,9 +2951,9 @@ async function refreshBooks(options = {}) {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // PROGRESSION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 async function fetchProgress(bookId) {
   if (!state.authVerified) return null;
   const response = await jsonp("getProgress", { email: state.email, bookId });
@@ -2991,13 +2991,13 @@ async function saveProgress({ immediate = false, showSuccess = false, showError 
     if (!response?.ok) throw new Error(response?.message || "Erreur d'enregistrement.");
     state.lastSaveSignature = signature;
     if (payload.lastOpenedAt) state.currentBookOpenedAt = "";
-    setSaveStatus("Progression enregistrÃ©e", "success");
-    if (showSuccess) showToast("Progression enregistrÃ©e");
+    setSaveStatus("Progression enregistrée", "success");
+    if (showSuccess) showToast("Progression enregistrée");
   } catch (error) {
     console.error(error);
     if (payload.readSecondsDelta) state.pendingReadingSeconds += Number(payload.readSecondsDelta) || 0;
-    queueOfflineAction('saveProgress', payload, 'Progression enregistrÃ©e localement.');
-    if (showError) showToast('Progression enregistrÃ©e localement');
+    queueOfflineAction('saveProgress', payload, 'Progression enregistrée localement.');
+    if (showError) showToast('Progression enregistrée localement');
   }
 }
 
@@ -3006,9 +3006,9 @@ function scheduleSave() {
   state.saveTimer = window.setTimeout(() => saveProgress(), CONFIG.autoSaveDelayMs || 450);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // SIGNETS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 async function loadBookmarks() {
   if (!state.currentBook || !state.authVerified) return;
   const response = await jsonp("listBookmarks", {
@@ -3021,13 +3021,13 @@ async function loadBookmarks() {
 async function addBookmark() {
   if (!state.currentBook || state.bookmarkActionBusy || !state.authVerified) return;
   if (state.bookmarks.some((b) => Number(b.page) === state.currentPage)) {
-    setBookmarkStatus(`Un signet existe dÃ©jÃ  pour la page ${state.currentPage}.`, "pending");
-    showToast(`Signet dÃ©jÃ  prÃ©sent Ã  la page ${state.currentPage}`);
+    setBookmarkStatus(`Un signet existe déjà pour la page ${state.currentPage}.`, "pending");
+    showToast(`Signet déjà présent à la page ${state.currentPage}`);
     return;
   }
   state.bookmarkActionBusy = true;
   setBookmarkControlsDisabled(true);
-  setBookmarkStatus("Sauvegarde du signet en cours, veuillez patienterâ€¦", "pending", true);
+  setBookmarkStatus("Sauvegarde du signet en cours, veuillez patienter…", "pending", true);
   try {
     const response = await jsonp("addBookmark", {
       email: state.email, bookId: state.currentBook.bookId, page: state.currentPage,
@@ -3043,15 +3043,15 @@ async function addBookmark() {
     state.bookmarks.sort((a, b) => Number(a.page) - Number(b.page));
     markBookmarkArrival(state.currentPage);
     renderBookmarks();
-    setBookmarkStatus(`Signet enregistrÃ© Ã  la page ${state.currentPage}.`, "success");
-    showToast(`Signet ajoutÃ© - page ${state.currentPage}`);
+    setBookmarkStatus(`Signet enregistré à la page ${state.currentPage}.`, "success");
+    showToast(`Signet ajouté - page ${state.currentPage}`);
   } catch (error) {
     console.error(error);
     setBookmarkStatus(error.message || "Impossible d'enregistrer le signet.", "error");
     state.bookmarks.push({ page: state.currentPage, createdAt: new Date().toISOString(), label: '' });
     state.bookmarks.sort((a, b) => Number(a.page) - Number(b.page));
     renderBookmarks();
-    queueOfflineAction('addBookmark', { email: state.email, bookId: state.currentBook.bookId, page: state.currentPage }, 'Signet enregistrÃ© localement.');
+    queueOfflineAction('addBookmark', { email: state.email, bookId: state.currentBook.bookId, page: state.currentPage }, 'Signet enregistré localement.');
   } finally {
     state.bookmarkActionBusy = false;
     setBookmarkControlsDisabled(false);
@@ -3062,7 +3062,7 @@ async function removeBookmark(page) {
   if (!state.currentBook || state.bookmarkActionBusy || !state.authVerified) return;
   state.bookmarkActionBusy = true;
   setBookmarkControlsDisabled(true);
-  setBookmarkStatus("Suppression du signet en cours, veuillez patienterâ€¦", "pending", true);
+  setBookmarkStatus("Suppression du signet en cours, veuillez patienter…", "pending", true);
   try {
     const response = await jsonp("removeBookmark", {
       email: state.email, bookId: state.currentBook.bookId, page,
@@ -3071,8 +3071,8 @@ async function removeBookmark(page) {
     state.bookmarks = state.bookmarks.filter((item) => Number(item.page) !== Number(page));
     if (state.lastOpenedBookmarkPage === Number(page)) state.lastOpenedBookmarkPage = 0;
     renderBookmarks();
-    setBookmarkStatus("Signet supprimÃ©.", "success");
-    showToast("Signet supprimÃ©");
+    setBookmarkStatus("Signet supprimé.", "success");
+    showToast("Signet supprimé");
   } catch (error) {
     console.error(error);
     setBookmarkStatus(error.message || "Impossible de supprimer le signet.", "error");
@@ -3094,7 +3094,7 @@ async function renameBookmark(page) {
   if (nextLabel === null) return;
   state.bookmarkActionBusy = true;
   setBookmarkControlsDisabled(true);
-  setBookmarkStatus("Enregistrement du nom du signet en coursâ€¦", "pending", true);
+  setBookmarkStatus("Enregistrement du nom du signet en cours…", "pending", true);
   try {
     const response = await jsonp("renameBookmark", {
       email: state.email,
@@ -3106,8 +3106,8 @@ async function renameBookmark(page) {
     bookmark.label = nextLabel.trim();
     renderBookmarks();
     markBookmarkArrival(page);
-    setBookmarkStatus("Nom du signet enregistrÃ©.", "success");
-    showToast("Nom du signet enregistrÃ©");
+    setBookmarkStatus("Nom du signet enregistré.", "success");
+    showToast("Nom du signet enregistré");
   } catch (error) {
     console.error(error);
     setBookmarkStatus(error.message || "Impossible de renommer le signet.", "error");
@@ -3149,9 +3149,9 @@ function renderBookmarks() {
   }).join("");
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // NOTES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 async function loadNotes() {
   if (!state.currentBook || !state.authVerified) return;
   const response = await jsonp("listNotes", {
@@ -3248,7 +3248,7 @@ function persistOfflineQueue() {
   } catch (_) {}
 }
 
-function queueOfflineAction(action, params, statusMessage = 'Action enregistrÃ©e hors ligne. Synchronisation en attente.') {
+function queueOfflineAction(action, params, statusMessage = 'Action enregistrée hors ligne. Synchronisation en attente.') {
   state.offlineQueue = sanitizeOfflineQueue(state.offlineQueue);
   const normalizedParams = { ...(params || {}) };
   const merged = mergeOfflineAction(state.offlineQueue, action, normalizedParams);
@@ -3263,7 +3263,7 @@ function queueOfflineAction(action, params, statusMessage = 'Action enregistrÃ�
   setSaveStatus('Synchronisation en attente', 'error');
   if (action.indexOf('Bookmark') !== -1) setBookmarkStatus(statusMessage, 'error');
   if (action.indexOf('Note') !== -1) setNoteStatus(statusMessage, 'error');
-  if (trimmed) showToast("Historique local allÃ©gÃ© pour garder l'application stable");
+  if (trimmed) showToast("Historique local allégé pour garder l'application stable");
 }
 
 async function syncOfflineQueue() {
@@ -3285,9 +3285,9 @@ async function syncOfflineQueue() {
   state.syncingOfflineQueue = false;
   if (!remaining.length) {
     if (state.currentBook) {
-      setSaveStatus('SynchronisÃ©', 'success');
-      setBookmarkStatus('SynchronisÃ©', 'success');
-      setNoteStatus('SynchronisÃ©', 'success');
+      setSaveStatus('Synchronisé', 'success');
+      setBookmarkStatus('Synchronisé', 'success');
+      setNoteStatus('Synchronisé', 'success');
     }
   }
 }
@@ -3323,7 +3323,7 @@ function toggleNarrowLayout() {
   localStorage.setItem(LS_NARROW_KEY, state.narrowLayout ? '1' : '0');
   applyReadingComfortClasses();
   updateUiLabels();
-  showToast(state.narrowLayout ? 'Largeur compacte activÃ©e' : 'Largeur standard activÃ©e');
+  showToast(state.narrowLayout ? 'Largeur compacte activée' : 'Largeur standard activée');
 }
 
 function toggleFocusMode() {
@@ -3331,7 +3331,7 @@ function toggleFocusMode() {
   localStorage.setItem(LS_FOCUS_KEY, state.focusMode ? '1' : '0');
   applyReadingComfortClasses();
   updateUiLabels();
-  showToast(state.focusMode ? 'Mode concentration activÃ©' : 'Mode concentration dÃ©sactivÃ©');
+  showToast(state.focusMode ? 'Mode concentration activé' : 'Mode concentration désactivé');
 }
 
 function getEffectiveBookStatus(book) {
@@ -3363,24 +3363,24 @@ function getEffectiveBookStatus(book) {
 
 function getBookStatusLabel(book) {
   const status = getEffectiveBookStatus(book);
-  if (status === 'completed') return 'TerminÃ©';
-  if (status === 'started') return 'CommencÃ©';
+  if (status === 'completed') return 'Terminé';
+  if (status === 'started') return 'Commencé';
   return 'Non ouvert';
 }
 
 function getBookActivityMeta(book) {
   if (book?.lastOpenedAt) {
-    return `DerniÃ¨re ouverture: ${formatDateTime(book.lastOpenedAt)}`;
+    return `Dernière ouverture: ${formatDateTime(book.lastOpenedAt)}`;
   }
   if (book?.firstOpenedAt) {
-    return `PremiÃ¨re ouverture: ${formatDateTime(book.firstOpenedAt)}`;
+    return `Première ouverture: ${formatDateTime(book.firstOpenedAt)}`;
   }
   const status = getEffectiveBookStatus(book);
   const visiblePages = Number(book?.visiblePageCount) || Number(book?.totalPages) || 0;
   const currentPage = Number(book?.currentPage) || 0;
   const progressPercent = Number(book?.progressPercent) || 0;
   if (status === 'completed') {
-    return visiblePages > 0 ? `Lecture terminÃ©e - page ${visiblePages} / ${visiblePages}` : 'Lecture terminÃ©e';
+    return visiblePages > 0 ? `Lecture terminée - page ${visiblePages} / ${visiblePages}` : 'Lecture terminée';
   }
   if (status === 'started') {
     if (visiblePages > 0 && currentPage > 0) {
@@ -3390,15 +3390,15 @@ function getBookActivityMeta(book) {
       return `Progression: ${Math.round(progressPercent)} %`;
     }
     if (Number(book?.bookmarksCount) > 0 || Number(book?.notesCount) > 0) {
-      return 'Lecture commencÃ©e';
+      return 'Lecture commencée';
     }
-    return 'ActivitÃ© de lecture dÃ©tectÃ©e';
+    return 'Activité de lecture détectée';
   }
   return 'Pas encore ouvert';
 }
 
 function formatSessionAverage(seconds) {
-  return seconds ? formatReadingDuration(seconds) : 'â€”';
+  return seconds ? formatReadingDuration(seconds) : '—';
 }
 
 function flushCurrentPageJournal() {
@@ -3411,7 +3411,7 @@ function flushCurrentPageJournal() {
     return;
   }
   if (rawSecondsSpent > MAX_PAGE_JOURNAL_SECONDS) {
-    console.warn(`Temps de page tronquÃ© pour Ã©viter une durÃ©e anormale (${rawSecondsSpent}s -> ${secondsSpent}s).`);
+    console.warn(`Temps de page tronqué pour éviter une durée anormale (${rawSecondsSpent}s -> ${secondsSpent}s).`);
   }
   const params = { email: state.email, bookId: state.currentBook.bookId, page: sourcePage, secondsSpent };
   jsonp('trackPageView', params).catch(() => queueOfflineAction('trackPageView', params));
@@ -3453,7 +3453,7 @@ async function saveCurrentNote() {
     if (!response?.ok) throw new Error(response?.message);
     await loadNotes();
     resetNoteEditor();
-    setNoteStatus("Note enregistrÃ©e", "success");
+    setNoteStatus("Note enregistrée", "success");
   } catch (error) {
     console.error(error);
     const optimisticNoteId = state.editingNoteId || `local-${Date.now()}`;
@@ -3462,7 +3462,7 @@ async function saveCurrentNote() {
     if (existingIndex >= 0) state.notes.splice(existingIndex, 1, optimistic); else state.notes.unshift(optimistic);
     renderNotes();
     resetNoteEditor();
-    queueOfflineAction('saveNote', { email: state.email, bookId: state.currentBook.bookId, page: state.currentPage, noteId: state.editingNoteId, noteText }, 'Note enregistrÃ©e localement.');
+    queueOfflineAction('saveNote', { email: state.email, bookId: state.currentBook.bookId, page: state.currentPage, noteId: state.editingNoteId, noteText }, 'Note enregistrée localement.');
   }
 }
 
@@ -3475,7 +3475,7 @@ async function deleteNote(noteId) {
     if (!response?.ok) throw new Error(response?.message);
     if (state.editingNoteId === noteId) resetNoteEditor();
     await loadNotes();
-    setNoteStatus("Note supprimÃ©e", "success");
+    setNoteStatus("Note supprimée", "success");
   } catch (error) {
     console.error(error);
     state.notes = state.notes.filter((item) => item.noteId !== noteId);
@@ -3484,9 +3484,9 @@ async function deleteNote(noteId) {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// RENDU BIBLIOTHÃˆQUE
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
+// RENDU BIBLIOTHÈQUE
+// ════════════════════════════════════════
 function getBookAssetVersion(book = null) {
   const raw = String(book?.lastPublishedAt || book?.lastUpdated || book?.progressLastUpdated || "").trim();
   if (!raw) return "";
@@ -3560,7 +3560,7 @@ function renderOpenBookButton(bookId, label = "Ouvrir", className = "nav-btn") {
   return `
     <button class="${className} book-open-btn${isOpening ? " is-loading" : ""}" type="button" data-open-book="${escapeHtml(bookId)}"${isOpening ? " disabled aria-busy=\"true\"" : ""}>
       ${isOpening
-        ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargementâ€¦</span>`
+        ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>`
         : escapeHtml(label)}
     </button>
   `;
@@ -3576,16 +3576,16 @@ function renderBookList() {
   const supportBanner = getLibrarySupportBannerHtml();
   const books = state.books.filter((b) => b.published || state.adminUnlocked);
   if (!books.length) {
-    dom.bookList.innerHTML = `${supportBanner}<div class="empty-state">Aucun livre publiÃ© pour le moment.</div>`;
+    dom.bookList.innerHTML = `${supportBanner}<div class="empty-state">Aucun livre publié pour le moment.</div>`;
     return;
   }
   dom.bookList.innerHTML = `${supportBanner}${books.map((book) => `
     <article class="book-card">
       ${coverHtml(book)}
       <div>
-        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "PubliÃ©" : "Non publiÃ©"}</div>
+        <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Non publié"}</div>
         <h3>${escapeHtml(book.title)}</h3>
-        <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiquÃ©"}</p>
+        <p class="book-meta">${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
         <p class="book-meta">${getVisibleBookPageCount(book) ? `${getVisibleBookPageCount(book)} pages` : "Nombre de pages inconnu"}</p>
         <div class="library-book-stats">
           <span class="library-stat-chip status-${escapeHtml(getEffectiveBookStatus(book))}">${escapeHtml(getBookStatusLabel(book))}</span>
@@ -3605,11 +3605,11 @@ function renderBookList() {
 function renderAdminBooks() {
   if (!state.isAdminCandidate) return;
   if (!state.adminUnlocked) {
-    dom.adminBooksList.innerHTML = `<div class="empty-state">DÃ©verrouille le module administrateur pour voir la gestion complÃ¨te.</div>`;
+    dom.adminBooksList.innerHTML = `<div class="empty-state">Déverrouille le module administrateur pour voir la gestion complète.</div>`;
     return;
   }
   if (!state.books.length) {
-    dom.adminBooksList.innerHTML = `<div class="empty-state">Aucun livre enregistrÃ©.</div>`;
+    dom.adminBooksList.innerHTML = `<div class="empty-state">Aucun livre enregistré.</div>`;
     return;
   }
   dom.adminBooksList.innerHTML = state.books.map((book) => {
@@ -3621,21 +3621,21 @@ function renderAdminBooks() {
       <article class="admin-book-card">
         ${coverHtml(book, "admin-book-cover")}
         <div>
-          <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "PubliÃ©" : "MasquÃ©"}</div>
+          <div class="badge ${book.published ? "published" : "hidden"}">${book.published ? "Publié" : "Masqué"}</div>
           <h4>${escapeHtml(book.title)}</h4>
-          <p>${book.author ? escapeHtml(book.author) : "Auteur non indiquÃ©"}</p>
-          <p>${realPages ? `${realPages} pages rÃ©elles` : "Pages inconnues"}</p>
-          <p>${visiblePages ? `${visiblePages} pages affichÃ©es aux Ã©lÃ¨ves` : "Pages visibles inconnues"}</p>
-          ${hiddenPagesCount ? `<p class="book-meta">${hiddenPagesCount} page(s) masquÃ©e(s)${book.hiddenPageRanges ? ` - ${escapeHtml(book.hiddenPageRanges)}` : ""}</p>` : ""}
+          <p>${book.author ? escapeHtml(book.author) : "Auteur non indiqué"}</p>
+          <p>${realPages ? `${realPages} pages réelles` : "Pages inconnues"}</p>
+          <p>${visiblePages ? `${visiblePages} pages affichées aux élèves` : "Pages visibles inconnues"}</p>
+          ${hiddenPagesCount ? `<p class="book-meta">${hiddenPagesCount} page(s) masquée(s)${book.hiddenPageRanges ? ` - ${escapeHtml(book.hiddenPageRanges)}` : ""}</p>` : ""}
           <div class="admin-book-actions">
             ${renderOpenBookButton(book.bookId, "Ouvrir", "secondary-btn")}
             <button class="ghost-btn" type="button" data-toggle-book="${escapeHtml(book.bookId)}">${book.published ? "Masquer" : "Publier"}</button>
             <button class="ghost-btn" type="button" data-toggle-pdf="${escapeHtml(book.bookId)}">${book.pdfAllowed ? "PDF : OUI" : "PDF : NON"}</button>
             <button class="ghost-btn admin-edit-btn${isEditBusy ? " is-loading" : ""}" type="button" data-edit-book="${escapeHtml(book.bookId)}"${isEditBusy ? " disabled aria-busy=\"true\"" : ""}>
-              ${isEditBusy ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargementâ€¦</span>` : "Modifier"}
+              ${isEditBusy ? `<span class="inline-spinner" aria-hidden="true"></span><span>Chargement…</span>` : "Modifier"}
             </button>
             <button class="ghost-btn admin-delete-btn${state.deleteBusyBookId === book.bookId ? " is-loading" : ""}" type="button" data-delete-book="${escapeHtml(book.bookId)}"${state.deleteBusyBookId === book.bookId ? " disabled aria-busy=\"true\"" : ""}>
-              ${state.deleteBusyBookId === book.bookId ? `<span class="inline-spinner" aria-hidden="true"></span><span>Suppressionâ€¦</span>` : "Supprimer"}
+              ${state.deleteBusyBookId === book.bookId ? `<span class="inline-spinner" aria-hidden="true"></span><span>Suppression…</span>` : "Supprimer"}
             </button>
           </div>
         </div>
@@ -3644,9 +3644,9 @@ function renderAdminBooks() {
   }).join("");
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// LECTEUR â€” CHARGEMENT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
+// LECTEUR — CHARGEMENT
+// ════════════════════════════════════════
 async function loadTextJson(book) {
   if (!book?.jsonPath) return null;
   const cacheKey = getBookAssetCacheKey(book, "json");
@@ -3677,9 +3677,9 @@ async function loadPdfDocument(book) {
   return state.pdfDoc;
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// LECTEUR â€” RENDU
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
+// LECTEUR — RENDU
+// ════════════════════════════════════════
 function rebuildReadingSurfaceClasses() {
   dom.readingSurface.classList.remove("mode-text", "mode-pdf", "theme-paper", "theme-night", ...FONT_CLASSES);
   dom.readingSurface.classList.add(state.mode === "text" ? "mode-text" : "mode-pdf");
@@ -3697,7 +3697,7 @@ function updateUiLabels() {
   dom.progressText.textContent = `${pct} %`;
   dom.progressBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
 
-  // Barre de progression supÃ©rieure
+  // Barre de progression supérieure
   dom.topProgressFill.style.width = `${Math.max(0, Math.min(100, pct))}%`;
   if (state.progressMode === "percent") {
     dom.topProgressLabel.textContent = `${pct} %`;
@@ -3706,7 +3706,7 @@ function updateUiLabels() {
   }
   dom.topProgressBar.hidden = !state.showProgressBar || dom.reader.hidden;
 
-  // Navigation infÃ©rieure
+  // Navigation inférieure
   dom.navPageText.textContent = `${state.currentPage} / ${total}`;
   dom.navPrevBtn.disabled = state.currentPage <= 1;
   dom.navNextBtn.disabled = state.currentPage >= total;
@@ -3737,19 +3737,19 @@ function updateUiLabels() {
 function normalizeLineText(parts) {
   return parts.join(" ")
     .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/([Â«(])\s+/g, "$1")
-    .replace(/\s+([Â»)])/g, "$1")
+    .replace(/([«(])\s+/g, "$1")
+    .replace(/\s+([»)])/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
 
 function isCenteredTextBlock(text = "") {
-  return /^[A-ZÃ‰ÃˆÃ€Ã‚ÃŠÃŽÃ”Ã›Ã‡][A-ZÃ‰ÃˆÃ€Ã‚ÃŠÃŽÃ”Ã›Ã‡''\s]{4,}$/.test(text) && text.length <= 60;
+  return /^[A-ZÉÈÀÂÊÎÔÛÇ][A-ZÉÈÀÂÊÎÔÛÇ''\s]{4,}$/.test(text) && text.length <= 60;
 }
 
 function looksLikeContinuationStart(text = "") {
-  return /^[a-zÃ Ã¢Ã¤Ã§Ã©Ã¨ÃªÃ«Ã®Ã¯Ã´Ã¶Ã¹Ã»Ã¼Ã¿Ã¦Å“]/.test(text)
-    || /^(de|du|des|la|le|les|un|une|et|ou|oÃ¹|que|qui|dont|mais|car|or|ni|donc|pour|par|sur|sous|dans|avec|sans|ce|cet|cette|ces|sa|son|ses|leur|leurs|au|aux|Ã |en)\b/i.test(text);
+  return /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(text)
+    || /^(de|du|des|la|le|les|un|une|et|ou|où|que|qui|dont|mais|car|or|ni|donc|pour|par|sur|sous|dans|avec|sans|ce|cet|cette|ces|sa|son|ses|leur|leurs|au|aux|à|en)\b/i.test(text);
 }
 
 function stripHtmlToText(html = "") {
@@ -3805,8 +3805,8 @@ function shouldStartNewParagraphFromLines(previousLine = "", currentLine = "", p
   const paragraph = String(paragraphText || "").trim();
   if (!prev || !current) return false;
   if (looksLikeContinuationStart(current)) return false;
-  if (!/[.!?â€¦Â»â€"]$/.test(prev)) return false;
-  if (!/^[Â«"(\[]?[A-ZÃ€Ã‚Ã„Ã‡Ã‰ÃˆÃŠÃ‹ÃŽÃÃ”Ã–Ã™Ã›ÃœÅ¸Ã†Å’]/.test(current)) return false;
+  if (!/[.!?…»”"]$/.test(prev)) return false;
+  if (!/^[«"(\[]?[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]/.test(current)) return false;
   const paragraphLength = paragraph.replace(/\s+/g, " ").length;
   if (paragraphLineCount >= 3 && paragraphLength >= 90) return true;
   if (paragraphLineCount >= 2 && paragraphLength >= 120 && current.length >= 28) return true;
@@ -3834,7 +3834,7 @@ function rebuildStructuredPageFromLineBlocks(lineBlocks = [], fallbackText = "")
 
     if (type === "dialogue") {
       pushParagraph();
-      blocks.push({ type: "dialogue", text: text.replace(/^[-â€“â€”]\s*/, "- ") });
+      blocks.push({ type: "dialogue", text: text.replace(/^[-–—]\s*/, "- ") });
       continue;
     }
 
@@ -3845,7 +3845,7 @@ function rebuildStructuredPageFromLineBlocks(lineBlocks = [], fallbackText = "")
     }
 
     const lastBlock = blocks[blocks.length - 1] || null;
-    if (!paragraphLines.length && lastBlock && lastBlock.type === "dialogue" && !/[.!?â€¦Â»â€"]$/.test(lastBlock.text)) {
+    if (!paragraphLines.length && lastBlock && lastBlock.type === "dialogue" && !/[.!?…»”"]$/.test(lastBlock.text)) {
       lastBlock.text = `${lastBlock.text} ${text}`.replace(/\s+([,.;:!?])/g, "$1").trim();
       continue;
     }
@@ -3870,7 +3870,7 @@ function looksPoorlyReflowedBlockSequence(blocks = []) {
   const texts = proseBlocks.map((block) => String(block.text || "").trim()).filter(Boolean);
   if (texts.length < 4) return false;
   const shortBlocks = texts.filter((text) => text.length < 95).length;
-  const weakEndings = texts.filter((text) => !/[.!?â€¦Â»â€"]$/.test(text)).length;
+  const weakEndings = texts.filter((text) => !/[.!?…»”"]$/.test(text)).length;
   const continuationStarts = texts.filter((text) => looksLikeContinuationStart(text)).length;
   const tinyBlocks = texts.filter((text) => text.length <= 24).length;
   return shortBlocks >= Math.max(3, Math.ceil(texts.length * 0.55))
@@ -3901,7 +3901,7 @@ function buildStructuredPageFromPlainText(rawText = "") {
     return { html: "", text: "", charCount: 0, renderMode: "pdf" };
   }
   const lineBlocks = source.split(/\n/).map((line) => String(line || "").trim()).filter(Boolean).map((line) => {
-    if (/^[-â€“â€”]\s*/.test(line)) return { type: "dialogue", text: line.replace(/^[-â€“â€”]\s*/, "- ") };
+    if (/^[-–—]\s*/.test(line)) return { type: "dialogue", text: line.replace(/^[-–—]\s*/, "- ") };
     if (isCenteredTextBlock(line)) return { type: "centered", text: line };
     return { type: "paragraph", text: line };
   });
@@ -4070,7 +4070,7 @@ async function openBook(book, options = {}) {
     state.sourceTotalPages = sourceTotalPages;
     state.visiblePages = buildVisiblePages(sourceTotalPages, resolvedBook.hiddenPageRanges || "");
     if (!state.visiblePages.length) {
-      throw new Error("Toutes les pages de ce livre sont actuellement masquÃ©es.");
+      throw new Error("Toutes les pages de ce livre sont actuellement masquées.");
     }
     state.totalPages = state.visiblePages.length;
 
@@ -4083,7 +4083,7 @@ async function openBook(book, options = {}) {
     await renderCurrentPage({ forceFit: true });
     startReadingTracking();
     saveCurrentBookState();
-    setSaveStatus("PrÃªt");
+    setSaveStatus("Prêt");
 
     void bookmarksPromise.then((bookmarksResult) => {
       state.bookmarks = bookmarksResult?.ok && Array.isArray(bookmarksResult.bookmarks) ? bookmarksResult.bookmarks : [];
@@ -4128,9 +4128,9 @@ function fitCurrentView() {
   void renderCurrentPage({ forceFit: true });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // ADMIN
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function rebuildAdminBookIdFromTitle() {
   if (!dom.bookIdInput.dataset.lockedManual) {
     dom.bookIdInput.value = slugify(dom.bookTitleInput.value);
@@ -4139,7 +4139,7 @@ function rebuildAdminBookIdFromTitle() {
 
 async function unlockAdmin() {
   if (!canSeeAdminPanel()) {
-    showToast("AccÃ¨s administrateur refusÃ©");
+    showToast("Accès administrateur refusé");
     resetAdminState();
     return;
   }
@@ -4151,8 +4151,8 @@ async function unlockAdmin() {
   }
 
   dom.unlockAdminBtn.disabled = true;
-  dom.unlockAdminBtn.textContent = "VÃ©rificationâ€¦";
-  setAdminUnlockStatus("VÃ©rification du code administrateurâ€¦");
+  dom.unlockAdminBtn.textContent = "Vérification…";
+  setAdminUnlockStatus("Vérification du code administrateur…");
 
   try {
     const validation = await jsonp("validateAdmin", { email: state.email, adminCode: code });
@@ -4167,7 +4167,7 @@ async function unlockAdmin() {
     renderBookList();
     renderAdminBooks();
     applyAdminVisibility();
-    setAdminUnlockStatus("Module administrateur dÃ©verrouillÃ©.", "success");
+    setAdminUnlockStatus("Module administrateur déverrouillé.", "success");
     void loadAssignableUsers(true);
   } catch (error) {
     console.error(error);
@@ -4178,28 +4178,28 @@ async function unlockAdmin() {
     showToast("Code administrateur invalide");
   } finally {
     dom.unlockAdminBtn.disabled = false;
-    dom.unlockAdminBtn.textContent = "DÃ©verrouiller";
+    dom.unlockAdminBtn.textContent = "Déverrouiller";
   }
 }
 
 async function testGithubConnection() {
   if (!canSeeAdminPanel() || !state.adminUnlocked) return;
   dom.testGithubBtn.disabled = true;
-  dom.githubTestStatus.textContent = "Test en coursâ€¦";
+  dom.githubTestStatus.textContent = "Test en cours…";
   dom.githubTestStatus.className = "save-status";
   try {
     const response = await jsonp("testGithubToken", {
       email: state.email, adminCode: state.adminCode,
     });
     if (response?.ok) {
-      dom.githubTestStatus.textContent = "âœ“ " + (response.message || "Connexion GitHub rÃ©ussie");
+      dom.githubTestStatus.textContent = "✓ " + (response.message || "Connexion GitHub réussie");
       dom.githubTestStatus.className = "save-status status-success";
     } else {
-      dom.githubTestStatus.textContent = "âœ— " + (response?.message || "Ã‰chec");
+      dom.githubTestStatus.textContent = "✗ " + (response?.message || "Échec");
       dom.githubTestStatus.className = "save-status status-error";
     }
   } catch (error) {
-    dom.githubTestStatus.textContent = "âœ— " + error.message;
+    dom.githubTestStatus.textContent = "✗ " + error.message;
     dom.githubTestStatus.className = "save-status status-error";
   } finally {
     dom.testGithubBtn.disabled = false;
@@ -4222,7 +4222,7 @@ async function toggleBookPublished(bookId) {
       bookId, published: nextPublished ? "true" : "false",
     }, { timeoutMs: 30000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer le statut.");
-    showToast("Statut mis Ã  jour");
+    showToast("Statut mis à jour");
     await refreshBooks({ origin: "admin" });
   } catch (error) {
     console.error(error);
@@ -4250,7 +4250,7 @@ async function toggleBookPdfAllowed(bookId) {
       bookId, pdfAllowed: nextAllowed ? "true" : "false",
     }, { timeoutMs: 30000 });
     if (!response?.ok) throw new Error(response?.message || "Impossible de changer l'autorisation PDF.");
-    showToast("Autorisation PDF mise Ã  jour");
+    showToast("Autorisation PDF mise à jour");
     void refreshBooks({ origin: "admin" }).catch((error) => { console.error(error); });
   } catch (error) {
     console.error(error);
@@ -4269,27 +4269,27 @@ async function deleteBook(bookId) {
   if (!book) return;
 
   const label = book.title || book.bookId || "ce livre";
-  const confirmed = window.confirm(`Supprimer dÃ©finitivement Â« ${label} Â» ?
+  const confirmed = window.confirm(`Supprimer définitivement « ${label} » ?
 
-Cette action retirera le livre de la bibliothÃ¨que et effacera ses donnÃ©es liÃ©es.`);
+Cette action retirera le livre de la bibliothèque et effacera ses données liées.`);
   if (!confirmed) return;
 
-  const safety = window.prompt(`Confirmation de sÃ©curitÃ©
+  const safety = window.prompt(`Confirmation de sécurité
 
-Tape SUPPRIMER pour confirmer la suppression dÃ©finitive de Â« ${label} Â».`, "");
+Tape SUPPRIMER pour confirmer la suppression définitive de « ${label} ».`, "");
   if (safety !== "SUPPRIMER") {
-    showToast("Suppression annulÃ©e");
+    showToast("Suppression annulée");
     return;
   }
 
   const previousBooks = state.books.map(buildBookSnapshot).filter(Boolean);
   state.deleteBusyBookId = bookId;
-  setAdminBooksStatus(`Suppression de Â« ${label} Â» en coursâ€¦`);
+  setAdminBooksStatus(`Suppression de « ${label} » en cours…`);
   state.books = state.books.filter((item) => item.bookId !== bookId);
   saveBooksCache();
   renderBookList();
   renderAdminBooks();
-  showToast(`Suppression de Â« ${label} Â» en coursâ€¦`);
+  showToast(`Suppression de « ${label} » en cours…`);
 
   try {
     const response = await jsonp("deleteBook", {
@@ -4302,10 +4302,10 @@ Tape SUPPRIMER pour confirmer la suppression dÃ©finitive de Â« ${label} Â»
       console.warn("Avertissements lors de la suppression du livre :", response.warnings);
     }
     clearBookRuntimeCache(bookId);
-    setAdminBooksStatus((response.message || "Livre supprimÃ©.") + " Actualisation de la listeâ€¦", "success");
-    showToast(response.message || "Livre supprimÃ©");
+    setAdminBooksStatus((response.message || "Livre supprimé.") + " Actualisation de la liste…", "success");
+    showToast(response.message || "Livre supprimé");
     await refreshBooks({ origin: "admin" });
-    setAdminBooksStatus(response.message || "Livre supprimÃ©.", "success");
+    setAdminBooksStatus(response.message || "Livre supprimé.", "success");
   } catch (error) {
     console.error(error);
     state.books = previousBooks;
@@ -4352,7 +4352,7 @@ async function openEditBookModal(bookId) {
 
 async function saveEditBook() {
   if (!canSeeAdminPanel() || !state.adminUnlocked) {
-    dom.editBookStatus.textContent = "AccÃ¨s administrateur requis.";
+    dom.editBookStatus.textContent = "Accès administrateur requis.";
     return;
   }
   const bookId = dom.editBookId.value.trim();
@@ -4369,7 +4369,7 @@ async function saveEditBook() {
   if (!title) { dom.editBookStatus.textContent = "Le titre est requis."; return; }
   if (restrictedAccess && !assignedEmails.length) { dom.editBookStatus.textContent = "Choisis au moins un utilisateur."; return; }
   dom.editBookSaveBtn.disabled = true;
-  dom.editBookStatus.textContent = coverFile || removeCover ? "TÃ©lÃ©versement et enregistrementâ€¦" : "Enregistrementâ€¦";
+  dom.editBookStatus.textContent = coverFile || removeCover ? "Téléversement et enregistrement…" : "Enregistrement…";
   renderHiddenPagesSummary(totalPages, hiddenPageRanges);
 
   const optimisticBook = buildBookSnapshot({
@@ -4423,9 +4423,9 @@ async function saveEditBook() {
     renderAdminBooks();
     renderHiddenPagesSummary(Number(nextBook.totalPages) || totalPages, nextBook.hiddenPageRanges || hiddenPageRanges);
     updateEditCoverPreview(nextBook);
-    dom.editBookStatus.textContent = response.message || "Livre modifiÃ©.";
-    setAdminBooksStatus(response.message || "Livre modifiÃ©.", "success");
-    showToast(response.message || "Livre modifiÃ©");
+    dom.editBookStatus.textContent = response.message || "Livre modifié.";
+    setAdminBooksStatus(response.message || "Livre modifié.", "success");
+    showToast(response.message || "Livre modifié");
     window.setTimeout(() => {
       dom.editBookModal.hidden = true;
       dom.editBookStatus.textContent = "";
@@ -4450,16 +4450,16 @@ async function saveEditBook() {
 // Change 7: Add users in bulk
 async function addUsersInBulk() {
   if (!canSeeAdminPanel() || !state.adminUnlocked) {
-    dom.addUsersStatus.textContent = "AccÃ¨s administrateur requis.";
+    dom.addUsersStatus.textContent = "Accès administrateur requis.";
     return;
   }
   const raw = dom.addUsersTextarea.value.trim();
   if (!raw) { dom.addUsersStatus.textContent = "Aucune adresse saisie."; return; }
   const emails = raw.split(/[\n,;]+/).map((e) => normalizeEmail(e)).filter((e) => isValidEmail(e));
-  if (!emails.length) { dom.addUsersStatus.textContent = "Aucune adresse valide trouvÃ©e."; return; }
-  if (emails.length > 100) { dom.addUsersStatus.textContent = "Maximum 100 adresses Ã  la fois."; return; }
+  if (!emails.length) { dom.addUsersStatus.textContent = "Aucune adresse valide trouvée."; return; }
+  if (emails.length > 100) { dom.addUsersStatus.textContent = "Maximum 100 adresses à la fois."; return; }
   dom.addUsersBtn.disabled = true;
-  dom.addUsersStatus.textContent = `Ajout de ${emails.length} utilisateur(s)â€¦`;
+  dom.addUsersStatus.textContent = `Ajout de ${emails.length} utilisateur(s)…`;
   try {
     const response = await jsonp("addUsers", {
       email: state.email, adminCode: state.adminCode,
@@ -4467,9 +4467,9 @@ async function addUsersInBulk() {
     });
     if (!response?.ok) throw new Error(response?.message || "Impossible d'ajouter les utilisateurs.");
     dom.addUsersTextarea.value = "";
-    dom.addUsersStatus.textContent = `âœ“ ${emails.length} utilisateur(s) ajoutÃ©(s)`;
+    dom.addUsersStatus.textContent = `✓ ${emails.length} utilisateur(s) ajouté(s)`;
     await loadAssignableUsers(true);
-    showToast(`${emails.length} utilisateur(s) ajoutÃ©(s)`);
+    showToast(`${emails.length} utilisateur(s) ajouté(s)`);
   } catch (error) {
     console.error(error);
     dom.addUsersStatus.textContent = error.message || "Erreur lors de l'ajout.";
@@ -4478,9 +4478,9 @@ async function addUsersInBulk() {
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // PUBLICATION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function arrayBufferToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -4516,10 +4516,10 @@ function buildLineFromWords(words) {
     } else {
       const gap = prevRight === null ? 0 : left - prevRight;
       const previousText = parts[parts.length - 1] || "";
-      const noLeadSpace = /^[,.;:!?%)\]Â»]/.test(text);
-      const noTrailSpace = /[(\[Â«]$/.test(previousText);
-      const decorativeInitialJoin = /^[A-ZÃ€Ã‚Ã„Ã‡Ã‰ÃˆÃŠÃ‹ÃŽÃÃ”Ã–Ã™Ã›ÃœÅ¸Ã†Å’]$/.test(previousText)
-        && /^[a-zÃ Ã¢Ã¤Ã§Ã©Ã¨ÃªÃ«Ã®Ã¯Ã´Ã¶Ã¹Ã»Ã¼Ã¿Ã¦Å“]/.test(text)
+      const noLeadSpace = /^[,.;:!?%)\]»]/.test(text);
+      const noTrailSpace = /[(\[«]$/.test(previousText);
+      const decorativeInitialJoin = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(previousText)
+        && /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(text)
         && gap <= Math.max(prevHeight * 0.95, height * 0.95, 8);
       if (noLeadSpace || noTrailSpace || gap < 1.5 || decorativeInitialJoin) parts[parts.length - 1] += text;
       else parts.push(text);
@@ -4548,8 +4548,8 @@ function mergeDecorativeInitialLines(lines) {
     const nextLeft = Number(next?.left) || 0;
     const currentRight = Number(current?.right);
 
-    const currentIsInitial = /^[A-ZÃ€Ã‚Ã„Ã‡Ã‰ÃˆÃŠÃ‹ÃŽÃÃ”Ã–Ã™Ã›ÃœÅ¸Ã†Å’]$/.test(currentText);
-    const nextStartsLowercase = /^[a-zÃ Ã¢Ã¤Ã§Ã©Ã¨ÃªÃ«Ã®Ã¯Ã´Ã¶Ã¹Ã»Ã¼Ã¿Ã¦Å“]/.test(nextText);
+    const currentIsInitial = /^[A-ZÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸÆŒ]$/.test(currentText);
+    const nextStartsLowercase = /^[a-zàâäçéèêëîïôöùûüÿæœ]/.test(nextText);
     const significantlyTaller = currentHeight > nextHeight * 1.45;
     const verticalOverlap = Math.min(currentBottom, nextBottom) - Math.max(currentTop, nextTop);
     const minHeight = Math.min(Math.max(0, currentBottom - currentTop), Math.max(0, nextBottom - nextTop));
@@ -4682,8 +4682,8 @@ function extractStructuredPage(items) {
     const indentBreak = prevLine && indent > Math.max(avgH * 1.85, 24) && gap > Math.max(avgH * 0.65, 8);
 
     lineBlocks.push({
-      type: /^[-â€“â€”]\s*/.test(text) ? "dialogue" : (isCenteredTextBlock(text) ? "centered" : "paragraph"),
-      text: /^[-â€“â€”]\s*/.test(text) ? text.replace(/^[-â€“â€”]\s*/, "- ") : text,
+      type: /^[-–—]\s*/.test(text) ? "dialogue" : (isCenteredTextBlock(text) ? "centered" : "paragraph"),
+      text: /^[-–—]\s*/.test(text) ? text.replace(/^[-–—]\s*/, "- ") : text,
       forceBreakBefore: !!(strongBreak || indentBreak),
     });
     prevLine = line;
@@ -4699,7 +4699,7 @@ async function convertPdfFileToJson(file, metadata) {
   const pdf = await loadingTask.promise;
   const pages = [];
   for (let n = 1; n <= pdf.numPages; n++) {
-    dom.publishProgress.textContent = `Extraction du texte â€” page ${n} / ${pdf.numPages}`;
+    dom.publishProgress.textContent = `Extraction du texte — page ${n} / ${pdf.numPages}`;
     const page = await pdf.getPage(n);
     const textContent = await page.getTextContent();
     const structured = extractStructuredPage(textContent.items);
@@ -4714,7 +4714,7 @@ async function convertPdfFileToJson(file, metadata) {
 
 async function publishBook(event) {
   event.preventDefault();
-  if (!canSeeAdminPanel() || !state.adminUnlocked) { showToast("DÃ©verrouille d'abord le module administrateur"); return; }
+  if (!canSeeAdminPanel() || !state.adminUnlocked) { showToast("Déverrouille d'abord le module administrateur"); return; }
 
   const pdfFile = dom.bookPdfInput.files?.[0];
   if (!pdfFile) { showToast("Choisis un PDF"); return; }
@@ -4735,26 +4735,26 @@ async function publishBook(event) {
   dom.publishSizeWarning.hidden = pdfFile.size < warnMB * 1024 * 1024;
 
   dom.publishBtn.disabled = true;
-  setPublishStatus("PrÃ©paration...");
-  dom.publishProgress.textContent = "Lecture du PDF localâ€¦";
+  setPublishStatus("Préparation...");
+  dom.publishProgress.textContent = "Lecture du PDF local…";
 
   try {
     const jsonDoc = await convertPdfFileToJson(pdfFile, { title, bookId, author });
     renderHiddenPagesSummary(Number(jsonDoc.totalPages) || 0, hiddenPageRanges, dom.publishHiddenPagesSummary);
-    dom.publishProgress.textContent = "Encodage du PDF en base64â€¦";
+    dom.publishProgress.textContent = "Encodage du PDF en base64…";
     const pdfBase64 = arrayBufferToBase64(await pdfFile.arrayBuffer());
     const jsonBase64 = utf8ToBase64(JSON.stringify(jsonDoc, null, 2));
 
     let coverBase64 = "";
     let coverExt = "";
     if (coverFile) {
-      dom.publishProgress.textContent = "PrÃ©paration de la couvertureâ€¦";
+      dom.publishProgress.textContent = "Préparation de la couverture…";
       coverBase64 = arrayBufferToBase64(await coverFile.arrayBuffer());
       coverExt = detectCoverExtension(coverFile);
     }
 
-    dom.publishProgress.textContent = "Envoi au service de publication GitHubâ€¦";
-    setPublishStatus("Publication en coursâ€¦");
+    dom.publishProgress.textContent = "Envoi au service de publication GitHub…";
+    setPublishStatus("Publication en cours…");
 
     const params = {
       action: "publishBook",
@@ -4783,11 +4783,11 @@ async function publishBook(event) {
 
     const postResult = await postAdminAction(params);
 
-    // Si on a pu lire la rÃ©ponse (pas opaque), on la traite directement
+    // Si on a pu lire la réponse (pas opaque), on la traite directement
     if (!postResult?.opaque) {
       if (postResult?.ok) {
-        setPublishStatus("Livre publiÃ© avec succÃ¨s", true);
-        dom.publishProgress.textContent = "Le PDF, le JSON et la couverture sont publiÃ©s dans GitHub.";
+        setPublishStatus("Livre publié avec succès", true);
+        dom.publishProgress.textContent = "Le PDF, le JSON et la couverture sont publiés dans GitHub.";
         dom.publishForm.reset();
         state.publishAssignedEmails = [];
         dom.publishRestrictedAccessInput.checked = false;
@@ -4799,18 +4799,18 @@ async function publishBook(event) {
         await refreshBooks({ origin: "admin" });
         return;
       } else {
-        throw new Error(postResult?.message || "Ã‰chec de publication cÃ´tÃ© serveur.");
+        throw new Error(postResult?.message || "Échec de publication côté serveur.");
       }
     }
 
-    // RÃ©ponse opaque (CORS fallback) â€” polling
-    dom.publishProgress.textContent = "VÃ©rification de la publication dans GitHubâ€¦";
+    // Réponse opaque (CORS fallback) — polling
+    dom.publishProgress.textContent = "Vérification de la publication dans GitHub…";
     let published = false;
     const maxAttempts = CONFIG.maxPublishPollAttempts || 6;
     const delay = CONFIG.publishPollDelayMs || 6000;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       await new Promise((res) => window.setTimeout(res, delay));
-      dom.publishProgress.textContent = `VÃ©rification ${attempt}/${maxAttempts}â€¦`;
+      dom.publishProgress.textContent = `Vérification ${attempt}/${maxAttempts}…`;
       clearBookRuntimeCache(bookId);
       await refreshBooks({ origin: "admin" });
       const book = getBookById(bookId);
@@ -4818,8 +4818,8 @@ async function publishBook(event) {
     }
 
     if (published) {
-      setPublishStatus("Livre publiÃ©", true);
-      dom.publishProgress.textContent = "PDF, JSON et couverture publiÃ©s dans le dÃ©pÃ´t GitHub.";
+      setPublishStatus("Livre publié", true);
+      dom.publishProgress.textContent = "PDF, JSON et couverture publiés dans le dépôt GitHub.";
       dom.publishForm.reset();
       state.publishAssignedEmails = [];
       dom.publishRestrictedAccessInput.checked = false;
@@ -4828,22 +4828,22 @@ async function publishBook(event) {
       dom.bookIdInput.dataset.lockedManual = "";
       dom.publishSizeWarning.hidden = true;
     } else {
-      setPublishStatus("Publication envoyÃ©e");
-      dom.publishProgress.textContent = "âš ï¸ Non dÃ©tectÃ© aprÃ¨s le dÃ©lai. Utilisez Â« Tester la connexion GitHub Â» puis rechargez la liste. Si le token est absent ou expirÃ©, reconfigure-le dans Apps Script â†’ PropriÃ©tÃ©s du projet.";
+      setPublishStatus("Publication envoyée");
+      dom.publishProgress.textContent = "⚠️ Non détecté après le délai. Utilisez « Tester la connexion GitHub » puis rechargez la liste. Si le token est absent ou expiré, reconfigure-le dans Apps Script → Propriétés du projet.";
     }
   } catch (error) {
     console.error(error);
-    setPublishStatus("Ã‰chec de publication");
-    dom.publishProgress.textContent = error.message || "Impossible de publier. VÃ©rifiez le token GitHub dans Apps Script.";
-    showToast("Ã‰chec de publication");
+    setPublishStatus("Échec de publication");
+    dom.publishProgress.textContent = error.message || "Impossible de publier. Vérifiez le token GitHub dans Apps Script.";
+    showToast("Échec de publication");
   } finally {
     dom.publishBtn.disabled = false;
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // LOGOUT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function logoutToGate() {
   state.email = "";
   state.authVerified = false;
@@ -4903,8 +4903,8 @@ async function finishLoginFlow(options = {}) {
   const savedBookState = attemptRestore ? readCurrentBookState() : null;
   const wantsDirectRestore = !!savedBookState?.bookId;
   const libraryLoadingMessage = firstName
-    ? `Bienvenue ${firstName}! Chargement de la bibliothÃ¨que en cours. Merci de patienter.`
-    : "Chargement de la bibliothÃ¨que en cours. Merci de patienter.";
+    ? `Bienvenue ${firstName}! Chargement de la bibliothèque en cours. Merci de patienter.`
+    : "Chargement de la bibliothèque en cours. Merci de patienter.";
   const readerLoadingMessage = "Chargement du livre en cours. Veuillez patienter.";
   const cachedBooks = readBooksCache();
   const savedBook = buildBookSnapshot(savedBookState?.book);
@@ -4978,7 +4978,7 @@ async function finishLoginFlow(options = {}) {
     renderAdminBooks();
     loadedFromCache = true;
     if (!wantsDirectRestore) {
-      showToast("BibliothÃ¨que restaurÃ©e Ã  partir de la derniÃ¨re session");
+      showToast("Bibliothèque restaurée à partir de la dernière session");
     }
   }
 
@@ -5003,7 +5003,7 @@ async function finishLoginFlow(options = {}) {
   }
 
   void syncOfflineQueue();
-  if (!fromRestore && !loadedFromCache) showToast("BibliothÃ¨que chargÃ©e");
+  if (!fromRestore && !loadedFromCache) showToast("Bibliothèque chargée");
 }
 
 function openProfileModal() {
@@ -5019,13 +5019,13 @@ async function saveUserProfileAndContinue() {
   const firstName = normalizePersonName(dom.profileFirstNameInput.value);
   const lastName = normalizePersonName(dom.profileLastNameInput.value);
   if (!firstName || !lastName) {
-    dom.profileStatus.textContent = "Le prÃ©nom et le nom sont requis.";
+    dom.profileStatus.textContent = "Le prénom et le nom sont requis.";
     return;
   }
   dom.profileFirstNameInput.value = firstName;
   dom.profileLastNameInput.value = lastName;
   dom.profileSaveBtn.disabled = true;
-  dom.profileStatus.textContent = "Enregistrementâ€¦";
+  dom.profileStatus.textContent = "Enregistrement…";
   try {
     const response = await jsonp("saveUserProfile", {
       email: state.email,
@@ -5070,13 +5070,13 @@ async function revalidateSessionInBackground() {
     updateLibraryGreeting();
     saveSession();
   } catch (_) {
-    // On conserve la session locale de l'appareil mÃªme si la validation distante Ã©choue temporairement.
+    // On conserve la session locale de l'appareil même si la validation distante échoue temporairement.
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // LOGIN
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 async function handleLogin(event) {
   event.preventDefault();
   const email = normalizeEmail(dom.emailInput.value);
@@ -5090,13 +5090,13 @@ async function handleLogin(event) {
   resetSensitiveUiState();
   state.email = "";
   setGateMessage("");
-  setGateBusy(true, "Validation en cours, veuillez patienterâ€¦");
+  setGateBusy(true, "Validation en cours, veuillez patienter…");
 
   try {
     const response = await auth(email);
-    if (!response?.ok) throw new Error(response?.message || "AccÃ¨s refusÃ©.");
+    if (!response?.ok) throw new Error(response?.message || "Accès refusé.");
     if (normalizeEmail(response.email) !== email) {
-      throw new Error("RÃ©ponse d'authentification invalide.");
+      throw new Error("Réponse d'authentification invalide.");
     }
     state.email = email;
     state.authVerified = true;
@@ -5129,16 +5129,16 @@ async function handleLogin(event) {
     console.error(error);
     resetSensitiveUiState();
     state.email = "";
-    setGateMessage(error.message || "AccÃ¨s refusÃ©.", "error");
+    setGateMessage(error.message || "Accès refusé.", "error");
     switchScreen("gate");
   } finally {
     setGateBusy(false);
   }
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // SWIPE NAVIGATION
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function attachSwipeEvents() {
   let startX = 0;
   let startY = 0;
@@ -5278,9 +5278,9 @@ function attachSwipeEvents() {
   }, { passive: true });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // PWA INSTALL BANNER
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function initInstallBanner() {
   state.deferredInstallPrompt = null;
 
@@ -5289,7 +5289,7 @@ function initInstallBanner() {
     state.deferredInstallPrompt = e;
     if (!localStorage.getItem(LS_INSTALL_KEY) && dom.installBanner) {
       dom.installBanner.hidden = false;
-      if (dom.installBannerText) dom.installBannerText.textContent = "Installez l'application sur votre Ã©cran d'accueil";
+      if (dom.installBannerText) dom.installBannerText.textContent = "Installez l'application sur votre écran d'accueil";
       if (dom.installBannerBtn) dom.installBannerBtn.hidden = false;
     }
     updateInstallShortcutVisibility();
@@ -5320,9 +5320,9 @@ function initInstallBanner() {
   updateInstallShortcutVisibility();
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // PROTECTION CONTENU
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 function blockEasyActions() {
   const shouldBlock = (event) => {
     if (dom.reader.hidden) return false;
@@ -5340,9 +5340,9 @@ function blockEasyActions() {
   document.addEventListener("paste", (e) => { if (shouldBlock(e)) e.preventDefault(); });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-// ATTACHEMENT DES Ã‰VÃ‰NEMENTS
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
+// ATTACHEMENT DES ÉVÉNEMENTS
+// ════════════════════════════════════════
 function attachEvents() {
   // Connexion
   bindSafeLoginEvents();
@@ -5365,13 +5365,13 @@ function attachEvents() {
     }
   });
 
-  // BibliothÃ¨que
+  // Bibliothèque
   on(dom.refreshBooksBtn, "click", async () => {
     try { await refreshBooks({ showFeedback: true, origin: "library" }); }
     catch (e) { console.error(e); showToast(e.message || "Impossible d'actualiser"); }
   });
 
-  // Lecteur â€” retour
+  // Lecteur — retour
   on(dom.backToLibraryBtn, "click", async () => {
     toggleMenu(false);
     setBookLoading(true, "Chargement en cours. Veuillez patienter.");
@@ -5401,7 +5401,7 @@ function attachEvents() {
     if (e.key === "Enter") { e.preventDefault(); goToPage(Number(dom.pageInput.value)); }
   });
 
-  // Navigation infÃ©rieure fixe
+  // Navigation inférieure fixe
   on(dom.navPrevBtn, "click", () => goToPage(state.currentPage - 1));
   on(dom.navNextBtn, "click", () => goToPage(state.currentPage + 1));
   on(dom.navPageBtn, "click", openPageJumpModal);
@@ -5414,7 +5414,7 @@ function attachEvents() {
     if (e.target === dom.pageJumpModal) closePageJumpModal();
   });
 
-  // Barre de progression supÃ©rieure
+  // Barre de progression supérieure
   on(dom.topProgressLabel, "click", () => {
     state.progressMode = state.progressMode === "percent" ? "pages" : "percent";
     localStorage.setItem(LS_PROGRESS_MODE_KEY, state.progressMode);
@@ -5427,7 +5427,7 @@ function attachEvents() {
   on(dom.widthToggleBtn, "click", toggleNarrowLayout);
   on(dom.focusModeBtn, "click", toggleFocusMode);
   on(dom.modeToggleBtn, "click", async () => {
-    if (!state.currentBook?.pdfAllowed) { showToast("Le mode PDF n'est pas autorisÃ© pour ce livre."); return; }
+    if (!state.currentBook?.pdfAllowed) { showToast("Le mode PDF n'est pas autorisé pour ce livre."); return; }
     if (state.mode === "text") {
       if (!state.pdfDoc) await loadPdfDocument(state.currentBook);
       state.mode = "pdf";
@@ -5438,19 +5438,19 @@ function attachEvents() {
     await renderCurrentPage({ forceFit: state.mode === "pdf" });
   });
 
-  // ThÃ¨me
+  // Thème
   on(dom.themeBtn, "click", async () => {
     state.theme = state.theme === "paper" ? "night" : "paper";
     localStorage.setItem(LS_THEME_KEY, state.theme);
     await renderCurrentPage();
   });
 
-  // Progression â€” toggle barre
+  // Progression — toggle barre
   on(dom.progressBarToggleBtn, "click", () => {
     state.showProgressBar = !state.showProgressBar;
     localStorage.setItem(LS_PROGRESS_BAR_KEY, String(state.showProgressBar));
     updateUiLabels();
-    showToast(state.showProgressBar ? "Barre de progression affichÃ©e" : "Barre de progression masquÃ©e");
+    showToast(state.showProgressBar ? "Barre de progression affichée" : "Barre de progression masquée");
   });
 
   // Modal taille du texte
@@ -5615,7 +5615,7 @@ function attachEvents() {
     dom.bookIdInput.dataset.lockedManual = dom.bookIdInput.value.trim() ? "1" : "";
   });
 
-  // DÃ©lÃ©gations â€” bibliothÃ¨que
+  // Délégations — bibliothèque
   on(dom.bookList, "click", async (e) => {
     const retryBtn = e.target.closest("[data-retry-last-open]");
     if (retryBtn) {
@@ -5656,7 +5656,7 @@ function attachEvents() {
     }
   });
 
-  // DÃ©lÃ©gations â€” admin livres
+  // Délégations — admin livres
   on(dom.adminBooksList, "click", async (e) => {
     const openBtn = e.target.closest("[data-open-book]");
     const reviewBtn = e.target.closest("[data-review-book]");
@@ -5689,7 +5689,7 @@ function attachEvents() {
     if (deleteBtn) { await deleteBook(deleteBtn.dataset.deleteBook); }
   });
 
-  // DÃ©lÃ©gations â€” signets
+  // Délégations — signets
   on(dom.bookmarkList, "click", async (e) => {
     const jumpBtn = e.target.closest("[data-bookmark-page]");
     const renameBtn = e.target.closest("[data-rename-bookmark]");
@@ -5697,15 +5697,15 @@ function attachEvents() {
     if (jumpBtn) {
       toggleMenu(false);
       await goToPage(Number(jumpBtn.dataset.bookmarkPage), { reason: "bookmark" });
-      setBookmarkStatus("Signet chargÃ©.", "success");
-      showToast("Page du signet chargÃ©e");
+      setBookmarkStatus("Signet chargé.", "success");
+      showToast("Page du signet chargée");
       return;
     }
     if (renameBtn) { await renameBookmark(Number(renameBtn.dataset.renameBookmark)); return; }
     if (removeBtn) await removeBookmark(Number(removeBtn.dataset.removeBookmark));
   });
 
-  // DÃ©lÃ©gations â€” notes
+  // Délégations — notes
   on(dom.notesList, "click", async (e) => {
     const editBtn = e.target.closest("[data-edit-note]");
     const delBtn = e.target.closest("[data-delete-note]");
@@ -5775,9 +5775,9 @@ function attachEvents() {
   });
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 // INIT
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ════════════════════════════════════════
 async function init() {
   cleanLoginQueryFromUrl();
   loadOfflineQueue();
