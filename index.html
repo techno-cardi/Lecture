@@ -12,7 +12,7 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./favicon.ico?v=20260404v23" sizes="any">
   <link rel="shortcut icon" href="./favicon.ico?v=20260404v23">
-  <link rel="stylesheet" href="./style.css?v=20260404v25">
+  <link rel="stylesheet" href="./style.css?v=20260411v26">
 </head>
 <body>
   <div class="app-shell">
@@ -254,7 +254,10 @@
             <div class="font-modal-title">Vérification de la lecture</div>
             <p class="admin-help modal-help">Consulte le détail d'un élève ou une vue globale des utilisateurs et de leur activité.</p>
           </div>
-          <button id="readingCheckCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          <div class="reading-check-header-actions">
+            <button id="readingCheckExportBtn" class="secondary-btn" type="button">Exporter CSV</button>
+            <button id="readingCheckCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          </div>
         </div>
         <div class="reading-check-tabs" role="tablist" aria-label="Affichages du suivi de lecture">
           <button id="readingCheckStudentTabBtn" class="reading-check-tab-btn is-active" type="button" role="tab" aria-selected="true">Par utilisateur</button>
@@ -317,7 +320,10 @@
             <div class="font-modal-title">Suivi de lecture par livre</div>
             <p id="bookReviewSubhead" class="admin-help modal-help">Sélectionne un livre pour consulter l'activité de lecture des élèves.</p>
           </div>
-          <button id="bookReviewCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          <div class="reading-check-header-actions">
+            <button id="bookReviewExportBtn" class="secondary-btn" type="button">Exporter CSV</button>
+            <button id="bookReviewCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          </div>
         </div>
         <div class="reading-check-toolbar book-review-toolbar">
           <label class="reading-check-field" for="bookReviewSearchInput">
@@ -534,6 +540,6 @@
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
   <script src="./config.js?v=20260406v31"></script>
-  <script type="module" src="./app.js?v=20260406v31"></script>
+  <script type="module" src="./app.js?v=20260411v32"></script>
 </body>
 </html>

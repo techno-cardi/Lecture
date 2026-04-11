@@ -18,6 +18,9 @@ const LS_LINE_SPACING_KEY = "readerLineSpacing";
 const LS_NARROW_KEY = "readerNarrowLayout";
 const LS_FOCUS_KEY = "readerFocusMode";
 const LS_OFFLINE_QUEUE_KEY = "readerOfflineQueue_v1";
+const LS_READING_CHECK_PREFS_KEY = "readingCheckPrefs_v1";
+const LS_BOOK_REVIEW_PREFS_KEY = "bookReviewPrefs_v1";
+const MAX_PAGE_JOURNAL_SECONDS = 1800;
 
 // ════════════════════════════════════════
 // DOM REFS
@@ -83,6 +86,7 @@ const dom = {
   addUsersStatus: document.getElementById("addUsersStatus"),
   studentCheckBtn: document.getElementById("studentCheckBtn"),
   readingCheckModal: document.getElementById("readingCheckModal"),
+  readingCheckExportBtn: document.getElementById("readingCheckExportBtn"),
   readingCheckCloseBtn: document.getElementById("readingCheckCloseBtn"),
   readingCheckStudentTabBtn: document.getElementById("readingCheckStudentTabBtn"),
   readingCheckOverviewTabBtn: document.getElementById("readingCheckOverviewTabBtn"),
@@ -98,6 +102,7 @@ const dom = {
   readingCheckUserList: document.getElementById("readingCheckUserList"),
   readingCheckDetails: document.getElementById("readingCheckDetails"),
   bookReviewModal: document.getElementById("bookReviewModal"),
+  bookReviewExportBtn: document.getElementById("bookReviewExportBtn"),
   bookReviewCloseBtn: document.getElementById("bookReviewCloseBtn"),
   bookReviewSubhead: document.getElementById("bookReviewSubhead"),
   bookReviewSearchInput: document.getElementById("bookReviewSearchInput"),
@@ -267,6 +272,9 @@ const state = {
   readingTickMs: 0,
   currentBookOpenedAt: "",
   currentPageEnteredAt: 0,
+  booksCacheSavedAt: 0,
+  booksLoadedFromCache: false,
+  bookLoadingVisibleAt: 0,
   lineSpacingMode: localStorage.getItem(LS_LINE_SPACING_KEY) || "normal",
   narrowLayout: localStorage.getItem(LS_NARROW_KEY) === "1",
   focusMode: localStorage.getItem(LS_FOCUS_KEY) === "1",
@@ -309,6 +317,21 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function readStoredJson(key, fallback = null) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function writeStoredJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (_) {}
 }
 
 function getTouchDistance(touches) {
@@ -432,6 +455,7 @@ function setBookmarkStatus(message, kind = "", busy = false) {
 function setBookLoading(isVisible, message = "Chargement du livre en cours. Veuillez patienter.") {
   if (!dom.bookLoadingOverlay) return;
   dom.bookLoadingOverlay.hidden = !isVisible;
+  state.bookLoadingVisibleAt = isVisible ? Date.now() : 0;
   if (dom.bookLoadingMessage) dom.bookLoadingMessage.textContent = message || "Chargement du livre en cours. Veuillez patienter.";
 }
 
@@ -609,11 +633,14 @@ function buildBookSnapshot(book) {
 
 function saveBooksCache() {
   if (!state.email) return;
+  const savedAt = Date.now();
+  state.booksCacheSavedAt = savedAt;
+  state.booksLoadedFromCache = false;
   try {
     localStorage.setItem(LS_BOOKS_CACHE_KEY, JSON.stringify({
       email: state.email,
       books: Array.isArray(state.books) ? state.books.map(buildBookSnapshot).filter(Boolean) : [],
-      savedAt: Date.now(),
+      savedAt,
     }));
   } catch (_) {}
 }
@@ -633,6 +660,25 @@ function readBooksCache() {
 
 function clearBooksCache() {
   try { localStorage.removeItem(LS_BOOKS_CACHE_KEY); } catch (_) {}
+  state.booksCacheSavedAt = 0;
+  state.booksLoadedFromCache = false;
+}
+
+function applyBooksCacheMetadata(cacheData, loadedFromCache = false) {
+  state.booksCacheSavedAt = Number(cacheData?.savedAt) || 0;
+  state.booksLoadedFromCache = !!loadedFromCache && !!state.booksCacheSavedAt;
+}
+
+function getLibraryMetaText() {
+  const parts = [state.email];
+  if (canSeeAdminPanel()) {
+    parts.push(state.adminUnlocked ? "mode administrateur actif" : "mode administrateur disponible");
+  }
+  if (state.booksCacheSavedAt) {
+    const prefix = state.booksLoadedFromCache ? "Cache local" : "Dernière synchro";
+    parts.push(`${prefix}: ${formatDateTimeWithRelative(state.booksCacheSavedAt)}`);
+  }
+  return parts.filter(Boolean).join(" · ");
 }
 
 
@@ -920,6 +966,232 @@ function formatDateTimeWithRelative(value, emptyText = "Aucune donnée") {
   const full = formatDateTime(value);
   const relative = formatRelativeTimeFromNow(value);
   return relative ? `${full} (${relative})` : full;
+}
+
+function loadReadingCheckPrefs() {
+  const prefs = readStoredJson(LS_READING_CHECK_PREFS_KEY, {}) || {};
+  state.readingCheckSortMode = String(prefs.sortMode || "name");
+  state.readingCheckShowExternal = !!prefs.showExternal;
+  state.readingCheckViewMode = prefs.viewMode === "overview" ? "overview" : "student";
+  state.readingCheckGlobalFilterMode = String(prefs.globalFilterMode || "all");
+  state.readingCheckOverviewBookId = String(prefs.overviewBookId || "");
+  if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = String(prefs.search || "");
+  if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = state.readingCheckSortMode;
+  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = state.readingCheckOverviewBookId;
+  if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = state.readingCheckGlobalFilterMode;
+  if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = state.readingCheckShowExternal;
+}
+
+function saveReadingCheckPrefs() {
+  writeStoredJson(LS_READING_CHECK_PREFS_KEY, {
+    search: String(dom.readingCheckSearchInput?.value || ""),
+    sortMode: String(dom.readingCheckSortSelect?.value || state.readingCheckSortMode || "name"),
+    showExternal: !!dom.readingCheckShowExternalInput?.checked,
+    viewMode: state.readingCheckViewMode === "overview" ? "overview" : "student",
+    globalFilterMode: String(dom.readingCheckGlobalFilterSelect?.value || state.readingCheckGlobalFilterMode || "all"),
+    overviewBookId: String(dom.readingCheckOverviewBookSelect?.value || state.readingCheckOverviewBookId || ""),
+  });
+}
+
+function loadBookReviewPrefs() {
+  const prefs = readStoredJson(LS_BOOK_REVIEW_PREFS_KEY, {}) || {};
+  state.bookReviewSortMode = String(prefs.sortMode || "name");
+  state.bookReviewFilterMode = String(prefs.filterMode || "all");
+  state.bookReviewShowExternal = !!prefs.showExternal;
+  if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = String(prefs.search || "");
+  if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = state.bookReviewSortMode;
+  if (dom.bookReviewFilterSelect) dom.bookReviewFilterSelect.value = state.bookReviewFilterMode;
+  if (dom.bookReviewShowExternalInput) dom.bookReviewShowExternalInput.checked = state.bookReviewShowExternal;
+}
+
+function saveBookReviewPrefs() {
+  writeStoredJson(LS_BOOK_REVIEW_PREFS_KEY, {
+    search: String(dom.bookReviewSearchInput?.value || ""),
+    sortMode: String(dom.bookReviewSortSelect?.value || state.bookReviewSortMode || "name"),
+    filterMode: String(dom.bookReviewFilterSelect?.value || state.bookReviewFilterMode || "all"),
+    showExternal: !!dom.bookReviewShowExternalInput?.checked,
+  });
+}
+
+function toCsvCell(value) {
+  return `"${String(value ?? "").replace(/"/g, '""').replace(/\r?\n/g, " ").trim()}"`;
+}
+
+function buildCsvContent(rows) {
+  return rows.map((row) => row.map(toCsvCell).join(",")).join("\r\n");
+}
+
+function downloadCsv(filename, rows) {
+  if (!Array.isArray(rows) || rows.length < 2) {
+    showToast("Aucune donnée à exporter");
+    return;
+  }
+  const blob = new Blob(["\uFEFF", buildCsvContent(rows)], { type: "text/csv;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 800);
+  showToast("Export CSV prêt");
+}
+
+function buildExportTimestamp() {
+  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+}
+
+function exportReadingCheckCsv() {
+  if (state.readingCheckViewMode === "overview") {
+    const selectedBookId = getReadingCheckOverviewSelectedBookId();
+    const selectedBook = getReadingCheckOverviewBookMeta(selectedBookId);
+    const users = getFilteredReadingCheckOverviewUsers();
+    const rows = [[
+      "Nom",
+      "Courriel",
+      "Externe",
+      "Livre",
+      "Statut",
+      "Progression (%)",
+      "Page courante",
+      "Pages totales",
+      "Temps de lecture (s)",
+      "Temps de lecture",
+      "Séances",
+      "Signets",
+      "Notes",
+      "Dernière activité",
+      "Dernière ouverture",
+      "Dernière connexion",
+    ]];
+    users.forEach((user) => {
+      const scoped = getReadingCheckOverviewUserBookStatus(user, selectedBookId) || {};
+      rows.push([
+        getReadingCheckUserName(user),
+        user.email || "",
+        user.isExternal ? "Oui" : "Non",
+        selectedBook?.title || "Tous les romans visibles",
+        getReadingCheckStatusLabel(getReadingCheckOverviewEffectiveStatus(user, selectedBookId)),
+        Math.round(Number(scoped.progressPercent) || 0),
+        Number(scoped.currentPage) || 0,
+        Number(scoped.totalPages) || 0,
+        Number(scoped.readingSeconds) || 0,
+        formatReadingDuration(scoped.readingSeconds),
+        Number(scoped.sessionCount) || 0,
+        Number(scoped.bookmarksCount) || 0,
+        Number(scoped.notesCount) || 0,
+        formatDateTime(getReadingCheckOverviewEffectiveActivityAt(user, selectedBookId)),
+        formatDateTime(scoped.lastOpenedAt),
+        formatDateTime(getEffectiveReadingCheckConnectionAt(user)),
+      ]);
+    });
+    downloadCsv(`verification-lecture-vue-globale-${slugify(selectedBook?.title || "tous-les-romans")}-${buildExportTimestamp()}.csv`, rows);
+    return;
+  }
+
+  const payload = state.readingCheckData;
+  const selectedUser = payload?.user || getPendingReadingCheckUser();
+  if (!selectedUser || !Array.isArray(payload?.books)) {
+    showToast("Choisis d'abord un élève");
+    return;
+  }
+  const books = getVisibleReadingCheckBooks(payload.books);
+  const rows = [[
+    "Nom",
+    "Courriel",
+    "Livre",
+    "Auteur",
+    "Statut",
+    "Progression (%)",
+    "Page courante",
+    "Pages totales",
+    "Temps de lecture (s)",
+    "Temps de lecture",
+    "Séances",
+    "Moyenne séance (s)",
+    "Dernière activité",
+    "Dernière ouverture",
+    "Première ouverture",
+    "Signets",
+    "Notes",
+    "Pages vues",
+    "Dernière page vue",
+    "Pages les plus consultées",
+  ]];
+  books.forEach((book) => {
+    const topPages = Array.isArray(book.topPages) ? book.topPages : [];
+    rows.push([
+      getReadingCheckUserName(selectedUser),
+      selectedUser.email || "",
+      book.title || book.bookId || "",
+      book.author || "",
+      getBookStatusLabel(book),
+      Math.round(Number(book.progressPercent) || 0),
+      Number(book.currentPage) || 0,
+      Number(book.totalPages) || 0,
+      Number(book.readingSeconds) || 0,
+      formatReadingDuration(book.readingSeconds),
+      Number(book.sessionCount) || 0,
+      Number(book.averageSessionSeconds) || 0,
+      formatDateTime(book.lastUpdated),
+      formatDateTime(book.lastOpenedAt),
+      formatDateTime(book.firstOpenedAt),
+      Array.isArray(book.bookmarks) ? book.bookmarks.length : 0,
+      Array.isArray(book.notes) ? book.notes.length : 0,
+      Number(book.viewedPagesCount) || 0,
+      Number(book.lastViewedPage) || 0,
+      topPages.map((item) => `Page ${Number(item.page) || 0} (${Number(item.viewsCount) || 0} vue(s), ${formatReadingDuration(item.readingSeconds)})`).join(" | "),
+    ]);
+  });
+  downloadCsv(`verification-lecture-${slugify(selectedUser.email || getReadingCheckUserName(selectedUser) || "utilisateur")}-${buildExportTimestamp()}.csv`, rows);
+}
+
+function exportBookReviewCsv() {
+  const payload = state.bookReviewData;
+  const book = payload?.book || null;
+  const users = getFilteredBookReviewUsers();
+  if (!book || !users.length) {
+    showToast("Choisis d'abord un livre");
+    return;
+  }
+  const rows = [[
+    "Livre",
+    "Nom",
+    "Courriel",
+    "Externe",
+    "Statut",
+    "Progression (%)",
+    "Page courante",
+    "Pages totales",
+    "Temps de lecture (s)",
+    "Temps de lecture",
+    "Séances",
+    "Signets",
+    "Notes",
+    "Dernière activité",
+    "Dernière ouverture",
+  ]];
+  users.forEach((user) => {
+    rows.push([
+      book.title || book.bookId || "",
+      getBookReviewUserName(user),
+      user.email || "",
+      user.isExternal ? "Oui" : "Non",
+      getBookReviewStatusLabel(user.status),
+      Math.round(Number(user.progressPercent) || 0),
+      Number(user.currentPage) || 0,
+      Number(user.totalPages) || 0,
+      Number(user.readingSeconds) || 0,
+      formatReadingDuration(user.readingSeconds),
+      Number(user.sessionCount) || 0,
+      Number(user.bookmarksCount) || 0,
+      Number(user.notesCount) || 0,
+      formatDateTime(user.lastUpdated),
+      formatDateTime(user.lastOpenedAt),
+    ]);
+  });
+  downloadCsv(`suivi-livre-${slugify(book.title || book.bookId || "livre")}-${buildExportTimestamp()}.csv`, rows);
 }
 
 function setReadingCheckStatus(message = "", kind = "", showSpinner = false) {
@@ -1736,6 +2008,7 @@ async function loadUsersReadingOverview(force = false) {
 }
 function setReadingCheckViewMode(mode) {
   state.readingCheckViewMode = mode === "overview" ? "overview" : "student";
+  saveReadingCheckPrefs();
   updateReadingCheckModeUi();
   renderReadingCheckGlobalSummary();
   renderReadingCheckUserList();
@@ -1749,6 +2022,7 @@ function setReadingCheckViewMode(mode) {
 
 
 function refreshReadingCheckAfterFilterChange() {
+  saveReadingCheckPrefs();
   if (state.readingCheckViewMode === "overview") {
     const selectedBookId = getReadingCheckOverviewSelectedBookId();
     if (selectedBookId && selectedBookId !== String(state.usersReadingOverviewData?.selectedBookId || "")) {
@@ -1782,14 +2056,7 @@ async function openReadingCheckModal() {
   }
   if (!dom.readingCheckModal) return;
   dom.readingCheckModal.hidden = false;
-  if (dom.readingCheckSearchInput) dom.readingCheckSearchInput.value = "";
-  if (dom.readingCheckSortSelect) dom.readingCheckSortSelect.value = "name";
-  if (dom.readingCheckOverviewBookSelect) dom.readingCheckOverviewBookSelect.value = "";
-  if (dom.readingCheckGlobalFilterSelect) dom.readingCheckGlobalFilterSelect.value = "all";
-  if (dom.readingCheckShowExternalInput) dom.readingCheckShowExternalInput.checked = false;
-  state.readingCheckSortMode = "name";
-  state.readingCheckShowExternal = false;
-  state.readingCheckGlobalFilterMode = "all";
+  loadReadingCheckPrefs();
   state.readingCheckData = null;
   state.usersReadingOverviewData = null;
   state.pendingReadingCheckUser = null;
@@ -1798,10 +2065,9 @@ async function openReadingCheckModal() {
   state.loadingReadingCheckEmail = "";
   state.loadingUsersReadingOverview = false;
   state.readingCheckBookFilters = [];
-  state.readingCheckOverviewBookId = "";
   state.loadingAssignableUsers = true;
   setReadingCheckStatus("");
-  setReadingCheckViewMode("student");
+  setReadingCheckViewMode(state.readingCheckViewMode);
   renderReadingCheckUserList();
   renderReadingCheckDetails();
   void loadAssignableUsers(true);
@@ -2033,13 +2299,9 @@ async function loadBookReadingOverview(bookId) {
 async function openBookReviewModal(bookId) {
   if (!state.adminUnlocked || !canSeeAdminPanel() || !dom.bookReviewModal) return;
   dom.bookReviewModal.hidden = false;
-  if (dom.bookReviewSearchInput) dom.bookReviewSearchInput.value = "";
-  if (dom.bookReviewSortSelect) dom.bookReviewSortSelect.value = "name";
-  if (dom.bookReviewFilterSelect) dom.bookReviewFilterSelect.value = "all";
-  if (dom.bookReviewShowExternalInput) dom.bookReviewShowExternalInput.checked = false;
-  state.bookReviewSortMode = "name";
-  state.bookReviewFilterMode = "all";
-  state.bookReviewShowExternal = false;
+  loadBookReviewPrefs();
+  state.bookReviewData = null;
+  state.selectedBookReviewEmail = "";
   renderBookReviewSummary();
   renderBookReviewUserList();
   renderBookReviewDetails();
@@ -2177,6 +2439,29 @@ function toggleMenu(force) {
   dom.menuToggle.setAttribute("aria-expanded", String(shouldOpen));
 }
 
+function isReaderActive() {
+  return !!state.currentBook && !dom.reader.hidden;
+}
+
+function normalizeReaderChrome() {
+  const menuOpen = !!dom.controlPanel && !dom.controlPanel.hidden;
+  if (dom.menuBackdrop) dom.menuBackdrop.hidden = !menuOpen;
+  if (dom.menuToggle) dom.menuToggle.setAttribute("aria-expanded", String(menuOpen));
+}
+
+function recoverReaderAfterInterruption(reason = "resume") {
+  if (!isReaderActive()) return;
+  const now = Date.now();
+  state.readingTickMs = now;
+  state.currentPageEnteredAt = now;
+  state.pinchActive = false;
+  normalizeReaderChrome();
+  if (dom.bookLoadingOverlay && !dom.bookLoadingOverlay.hidden && (state.textDoc || state.pdfDoc) && !state.currentPdfRenderTask) {
+    console.warn(`Overlay de chargement refermée après reprise (${reason}).`);
+    setBookLoading(false);
+  }
+}
+
 function cleanLoginQueryFromUrl() {
   try {
     const url = new URL(window.location.href);
@@ -2256,6 +2541,8 @@ function setBookmarkControlsDisabled(disabled) {
 
 function resetSensitiveUiState() {
   cancelActivePdfRender();
+  toggleMenu(false);
+  setBookLoading(false);
   state.userProfile = { firstName: "", lastName: "" };
   state.books = [];
   state.currentBook = null;
@@ -2277,6 +2564,7 @@ function resetSensitiveUiState() {
   state.readingTickMs = 0;
   state.currentBookOpenedAt = "";
   state.currentPageEnteredAt = 0;
+  state.bookLoadingVisibleAt = 0;
   if (dom.bookList) dom.bookList.innerHTML = "";
   if (dom.libraryGreeting) dom.libraryGreeting.textContent = "";
   if (dom.libraryMeta) dom.libraryMeta.textContent = "";
@@ -2286,9 +2574,7 @@ function resetSensitiveUiState() {
 
 function renderLibraryLoadingState(message) {
   updateLibraryGreeting();
-  dom.libraryMeta.textContent = canSeeAdminPanel()
-    ? `${state.email} - mode administrateur disponible`
-    : state.email;
+  dom.libraryMeta.textContent = getLibraryMetaText();
   dom.bookList.innerHTML = `<div class="empty-state loading-state"><span class="inline-spinner" aria-hidden="true"></span><span>${escapeHtml(message)}</span></div>`;
 }
 
@@ -2910,11 +3196,15 @@ function formatSessionAverage(seconds) {
 
 function flushCurrentPageJournal() {
   if (!state.authVerified || !state.currentBook || !state.currentPageEnteredAt) return;
-  const secondsSpent = Math.max(0, Math.round((Date.now() - state.currentPageEnteredAt) / 1000));
+  const rawSecondsSpent = Math.max(0, Math.round((Date.now() - state.currentPageEnteredAt) / 1000));
+  const secondsSpent = Math.min(rawSecondsSpent, MAX_PAGE_JOURNAL_SECONDS);
   const sourcePage = getSourcePageForDisplayPage(state.currentPage);
   if (!sourcePage || secondsSpent < 2) {
     state.currentPageEnteredAt = Date.now();
     return;
+  }
+  if (rawSecondsSpent > MAX_PAGE_JOURNAL_SECONDS) {
+    console.warn(`Temps de page tronqué pour éviter une durée anormale (${rawSecondsSpent}s -> ${secondsSpent}s).`);
   }
   const params = { email: state.email, bookId: state.currentBook.bookId, page: sourcePage, secondsSpent };
   jsonp('trackPageView', params).catch(() => queueOfflineAction('trackPageView', params));
@@ -3075,9 +3365,7 @@ function renderBookList() {
     return;
   }
   updateLibraryGreeting();
-  dom.libraryMeta.textContent = canSeeAdminPanel()
-    ? `${state.email} - mode administrateur disponible`
-    : state.email;
+  dom.libraryMeta.textContent = getLibraryMetaText();
   const books = state.books.filter((b) => b.published || state.adminUnlocked);
   if (!books.length) {
     dom.bookList.innerHTML = `<div class="empty-state">Aucun livre publié pour le moment.</div>`;
@@ -3099,7 +3387,7 @@ function renderBookList() {
         </div>
         <p class="book-meta">${escapeHtml(getBookActivityMeta(book))}</p>
         <div class="book-actions">
-          ${renderOpenBookButton(book.bookId, "Ouvrir", "nav-btn")}
+          ${renderOpenBookButton(book.bookId, getEffectiveBookStatus(book) === "not_started" ? "Ouvrir" : "Reprendre", "nav-btn")}
         </div>
       </div>
     </article>
@@ -4411,6 +4699,7 @@ async function finishLoginFlow(options = {}) {
   const cachedBooks = readBooksCache();
   const savedBook = buildBookSnapshot(savedBookState?.book);
   const hasCachedBooks = !!cachedBooks?.books?.length;
+  applyBooksCacheMetadata(cachedBooks, hasCachedBooks);
 
   if (wantsDirectRestore) {
     switchScreen("reader");
@@ -4420,6 +4709,7 @@ async function finishLoginFlow(options = {}) {
 
     if (cachedBooks?.books?.length) {
       state.books = cachedBooks.books;
+      applyBooksCacheMetadata(cachedBooks, true);
       renderBookList();
       renderAdminBooks();
     } else if (savedBook) {
@@ -4449,6 +4739,7 @@ async function finishLoginFlow(options = {}) {
     switchScreen("library");
     if (hasCachedBooks) {
       state.books = cachedBooks.books;
+      applyBooksCacheMetadata(cachedBooks, true);
       renderBookList();
       renderAdminBooks();
     } else {
@@ -4466,6 +4757,7 @@ async function finishLoginFlow(options = {}) {
     }
     if (cachedBooks?.books?.length) {
       state.books = cachedBooks.books;
+      applyBooksCacheMetadata(cachedBooks, true);
     } else if (savedBook) {
       state.books = [savedBook];
     } else {
@@ -4765,6 +5057,13 @@ function attachSwipeEvents() {
     else goToPage(state.currentPage - 1);
     horizontalSwipeLock = false;
   }, { passive: true });
+
+  on(dom.viewerShell, "touchcancel", () => {
+    swipeCandidate = false;
+    horizontalSwipeLock = false;
+    pinchStartDistance = 0;
+    state.pinchActive = false;
+  }, { passive: true });
 }
 
 // ════════════════════════════════════════
@@ -4865,6 +5164,7 @@ function attachEvents() {
     toggleMenu(false);
     setBookLoading(true, "Chargement en cours. Veuillez patienter.");
     try {
+      flushCurrentPageJournal();
       stopReadingTracking();
       await saveProgress({ immediate: true, showError: false });
       clearCurrentBookState();
@@ -4972,6 +5272,7 @@ function attachEvents() {
   }));
   on(dom.addUsersBtn, "click", addUsersInBulk);
   on(dom.studentCheckBtn, "click", openReadingCheckModal);
+  on(dom.readingCheckExportBtn, "click", exportReadingCheckCsv);
   on(dom.readingCheckCloseBtn, "click", closeReadingCheckModal);
   on(dom.readingCheckStudentTabBtn, "click", () => setReadingCheckViewMode("student"));
   on(dom.readingCheckOverviewTabBtn, "click", () => setReadingCheckViewMode("overview"));
@@ -5006,8 +5307,10 @@ function attachEvents() {
     void loadStudentReadingOverview(btn.dataset.readingCheckEmail);
   });
   on(dom.bookReviewCloseBtn, "click", closeBookReviewModal);
+  on(dom.bookReviewExportBtn, "click", exportBookReviewCsv);
   on(dom.bookReviewModal, "click", (e) => { if (e.target === dom.bookReviewModal) closeBookReviewModal(); });
   on(dom.bookReviewSearchInput, "input", () => {
+    saveBookReviewPrefs();
     renderBookReviewUserList();
     const firstUser = getFilteredBookReviewUsers()[0];
     if (state.selectedBookReviewEmail && !getFilteredBookReviewUsers().some((user) => user.email === state.selectedBookReviewEmail)) {
@@ -5016,8 +5319,13 @@ function attachEvents() {
     renderBookReviewUserList();
     renderBookReviewDetails();
   });
-  on(dom.bookReviewSortSelect, "change", () => { renderBookReviewUserList(); renderBookReviewDetails(); });
+  on(dom.bookReviewSortSelect, "change", () => {
+    saveBookReviewPrefs();
+    renderBookReviewUserList();
+    renderBookReviewDetails();
+  });
   on(dom.bookReviewFilterSelect, "change", () => {
+    saveBookReviewPrefs();
     const firstUser = getFilteredBookReviewUsers()[0];
     if (!getFilteredBookReviewUsers().some((user) => user.email === state.selectedBookReviewEmail)) {
       state.selectedBookReviewEmail = firstUser ? firstUser.email : "";
@@ -5026,6 +5334,7 @@ function attachEvents() {
     renderBookReviewDetails();
   });
   on(dom.bookReviewShowExternalInput, "change", () => {
+    saveBookReviewPrefs();
     const firstUser = getFilteredBookReviewUsers()[0];
     if (!getFilteredBookReviewUsers().some((user) => user.email === state.selectedBookReviewEmail)) {
       state.selectedBookReviewEmail = firstUser ? firstUser.email : "";
@@ -5183,7 +5492,7 @@ function attachEvents() {
       stopReadingTracking();
       saveProgress({ immediate: true, showError: false });
     } else if (state.currentBook) {
-      state.readingTickMs = Date.now();
+      recoverReaderAfterInterruption("visibilitychange");
     }
   });
   window.addEventListener("pagehide", () => {
@@ -5192,6 +5501,12 @@ function attachEvents() {
       flushCurrentPageJournal();
       stopReadingTracking();
     }
+  });
+  window.addEventListener("pageshow", () => {
+    recoverReaderAfterInterruption("pageshow");
+  });
+  window.addEventListener("focus", () => {
+    recoverReaderAfterInterruption("focus");
   });
   window.addEventListener("beforeunload", () => {
     if (state.currentBook) {
