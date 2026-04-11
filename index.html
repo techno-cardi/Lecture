@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="fr-CA">
 <head>
   <meta charset="utf-8">
@@ -12,22 +12,22 @@
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./favicon.ico?v=20260404v23" sizes="any">
   <link rel="shortcut icon" href="./favicon.ico?v=20260404v23">
-  <link rel="stylesheet" href="./style.css?v=20260411v27">
+  <link rel="stylesheet" href="./style.css?v=20260411v28">
 </head>
 <body>
   <div class="app-shell">
 
-    <!-- ═══════════════ BANNIÈRE INSTALLATION PWA ═══════════════ -->
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• BANNIÃˆRE INSTALLATION PWA â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <div id="installBanner" class="install-banner" hidden>
-      <span id="installBannerText">Installez l'application sur votre écran d'accueil</span>
+      <span id="installBannerText">Installez l'application sur votre Ã©cran d'accueil</span>
       <button id="installBannerBtn" class="install-banner-action" type="button">Installer</button>
-      <button id="installBannerDismiss" class="install-banner-dismiss" type="button" aria-label="Fermer">✕</button>
+      <button id="installBannerDismiss" class="install-banner-dismiss" type="button" aria-label="Fermer">âœ•</button>
     </div>
 
-    <!-- ═══════════════ ÉCRAN DE CONNEXION ═══════════════ -->
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• Ã‰CRAN DE CONNEXION â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <section id="gate" class="gate-screen panel">
       <h1 class="app-title">Lecture du document</h1>
-      <p class="app-subtitle">Entre une adresse courriel autorisée pour accéder à la bibliothèque.</p>
+      <p class="app-subtitle">Entre une adresse courriel autorisÃ©e pour accÃ©der Ã  la bibliothÃ¨que.</p>
 
       <form id="loginForm" class="login-form" autocomplete="on">
         <label for="emailInput" class="sr-only">Courriel scolaire</label>
@@ -47,7 +47,7 @@
           <input id="rememberMeInput" type="checkbox" autocomplete="off">
           <span>Se souvenir de moi</span>
         </label>
-        <button id="loginBtn" type="submit">Accéder</button>
+        <button id="loginBtn" type="submit">AccÃ©der</button>
       </form>
 
       <div id="gateBusy" class="gate-busy" hidden>
@@ -58,11 +58,11 @@
       <p id="gateMessage" class="gate-message" aria-live="polite"></p>
     </section>
 
-    <!-- ═══════════════ BIBLIOTHÈQUE ═══════════════ -->
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• BIBLIOTHÃˆQUE â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <section id="library" class="library-screen" hidden>
       <header class="library-header">
         <div>
-          <p class="eyebrow">Bibliothèque</p>
+          <p class="eyebrow">BibliothÃ¨que</p>
           <h2 class="library-title">Choisis un livre</h2>
           <p id="libraryGreeting" class="library-greeting"></p>
           <p id="libraryMeta" class="library-meta"></p>
@@ -70,29 +70,29 @@
         <div class="header-actions">
           <button id="refreshBooksBtn" class="secondary-btn" type="button">Actualiser</button>
           <button id="libraryInstallBtn" class="secondary-btn" type="button" hidden>Installer l'app</button>
-          <button id="resetLocalDataBtn" class="ghost-btn" type="button">Réinitialiser cet appareil</button>
           <button id="logoutBtn" class="ghost-btn" type="button">Changer de courriel</button>
         </div>
       </header>
 
       <section id="bookList" class="book-list" aria-live="polite"></section>
       
-      <!-- ═══ PANNEAU ADMINISTRATEUR ═══ -->
+      <!-- â•â•â• PANNEAU ADMINISTRATEUR â•â•â• -->
       <section id="adminPanel" class="admin-panel panel" hidden>
         <div class="admin-head">
           <div>
             <p class="eyebrow">Administration</p>
-            <h3>Préparer et publier un livre</h3>
-            <p class="admin-help">La conversion PDF vers JSON se fait ici, une seule fois, avant la lecture des élèves.</p>
+            <h3>PrÃ©parer et publier un livre</h3>
+            <p class="admin-help">La conversion PDF vers JSON se fait ici, une seule fois, avant la lecture des Ã©lÃ¨ves.</p>
           </div>
           <div class="admin-head-actions">
-            <button id="studentCheckBtn" class="secondary-btn" type="button" hidden>Vérification de la lecture d'un élève</button>
+            <button id="studentCheckBtn" class="secondary-btn" type="button" hidden>VÃ©rification de la lecture d'un Ã©lÃ¨ve</button>
+            <button id="adminSupportBtn" class="ghost-btn" type="button" hidden>Aide / dépannage</button>
           </div>
         </div>
 
         <div class="admin-lock-row">
           <input id="adminCodeInput" type="password" autocomplete="off" placeholder="Code administrateur">
-          <button id="unlockAdminBtn" class="secondary-btn" type="button">Déverrouiller</button>
+          <button id="unlockAdminBtn" class="secondary-btn" type="button">DÃ©verrouiller</button>
         </div>
         <div id="adminUnlockStatus" class="save-status admin-unlock-status" aria-live="polite"></div>
 
@@ -126,7 +126,7 @@
 
           <div class="publish-grid">
             <div>
-              <label for="publishHiddenPagesInput">Pages à masquer dès la publication</label>
+              <label for="publishHiddenPagesInput">Pages Ã  masquer dÃ¨s la publication</label>
               <input id="publishHiddenPagesInput" type="text" maxlength="120" placeholder="Ex. 1-7, 12-13">
               <div id="publishHiddenPagesSummary" class="hidden-pages-summary"></div>
             </div>
@@ -141,7 +141,7 @@
             <div>
               <label for="publishNowInput" class="checkbox-label">
                 <input id="publishNowInput" type="checkbox" checked>
-                <span>Publier immédiatement pour les élèves</span>
+                <span>Publier immÃ©diatement pour les Ã©lÃ¨ves</span>
               </label>
             </div>
           </div>
@@ -149,18 +149,18 @@
           <div class="access-assign-block">
             <label for="publishRestrictedAccessInput" class="checkbox-label">
               <input id="publishRestrictedAccessInput" type="checkbox">
-              <span>Attribuer ce livre à certains utilisateurs seulement</span>
+              <span>Attribuer ce livre Ã  certains utilisateurs seulement</span>
             </label>
             <div id="publishAssignWrap" class="assign-users-wrap" hidden>
               <label for="publishAssignedSearchInput">Rechercher un utilisateur</label>
               <input id="publishAssignedSearchInput" type="text" placeholder="Rechercher par nom ou courriel">
-              <div id="publishAssignedSummary" class="assign-users-summary">Aucun utilisateur sélectionné.</div>
+              <div id="publishAssignedSummary" class="assign-users-summary">Aucun utilisateur sÃ©lectionnÃ©.</div>
               <div id="publishAssignedList" class="assign-users-list"></div>
             </div>
           </div>
 
           <div class="publish-size-warning" id="publishSizeWarning" hidden>
-            ⚠️ Fichier volumineux — la publication peut prendre plusieurs minutes.
+            âš ï¸ Fichier volumineux â€” la publication peut prendre plusieurs minutes.
           </div>
 
           <div class="publish-actions">
@@ -172,7 +172,7 @@
 
         <div class="admin-books-wrap">
           <div class="admin-books-head">
-            <h4>Livres enregistrés</h4>
+            <h4>Livres enregistrÃ©s</h4>
             <div class="admin-books-tools"><button id="reloadAdminBooksBtn" class="secondary-btn" type="button">Recharger</button><span id="adminBooksStatus" class="save-status"></span></div>
           </div>
           <div id="adminBooksList" class="admin-books-list"></div>
@@ -207,11 +207,11 @@
           <label>Description
             <textarea id="editBookDescription" rows="3" maxlength="500" placeholder="Courte description (optionnel)"></textarea>
           </label>
-          <label>Pages masquées pour les élèves
+          <label>Pages masquÃ©es pour les Ã©lÃ¨ves
             <input id="editBookHiddenPages" type="text" maxlength="120" placeholder="Ex. 1-7, 12-13">
           </label>
           <div id="editHiddenPagesSummary" class="hidden-pages-summary"></div>
-          <p class="admin-help modal-help">Les pages indiquées ici ne seront plus affichées aux élèves. Utilise des plages comme 1-7, 12-13.</p>
+          <p class="admin-help modal-help">Les pages indiquÃ©es ici ne seront plus affichÃ©es aux Ã©lÃ¨ves. Utilise des plages comme 1-7, 12-13.</p>
           <div class="edit-cover-block">
             <div class="edit-cover-preview-wrap">
               <div id="editCoverPreview" class="edit-cover-preview"></div>
@@ -228,12 +228,12 @@
           <div class="access-assign-block modal-access-block">
             <label for="editRestrictedAccessInput" class="checkbox-label">
               <input id="editRestrictedAccessInput" type="checkbox">
-              <span>Restreindre ce livre à certains utilisateurs</span>
+              <span>Restreindre ce livre Ã  certains utilisateurs</span>
             </label>
             <div id="editAssignWrap" class="assign-users-wrap" hidden>
               <label for="editAssignedSearchInput">Rechercher un utilisateur</label>
               <input id="editAssignedSearchInput" type="text" placeholder="Rechercher par nom ou courriel">
-              <div id="editAssignedSummary" class="assign-users-summary">Aucun utilisateur sélectionné.</div>
+              <div id="editAssignedSummary" class="assign-users-summary">Aucun utilisateur sÃ©lectionnÃ©.</div>
               <div id="editAssignedList" class="assign-users-list"></div>
             </div>
           </div>
@@ -247,17 +247,17 @@
       </div>
     </div>
 
-    <!-- Modal vérification de la lecture d'un élève -->
+    <!-- Modal vÃ©rification de la lecture d'un Ã©lÃ¨ve -->
     <div id="readingCheckModal" class="font-modal-overlay" hidden>
       <div class="font-modal-panel reading-check-modal-panel">
         <div class="reading-check-header">
           <div>
-            <div class="font-modal-title">Vérification de la lecture</div>
-            <p class="admin-help modal-help">Consulte le détail d'un élève ou une vue globale des utilisateurs et de leur activité.</p>
+            <div class="font-modal-title">VÃ©rification de la lecture</div>
+            <p class="admin-help modal-help">Consulte le dÃ©tail d'un Ã©lÃ¨ve ou une vue globale des utilisateurs et de leur activitÃ©.</p>
           </div>
           <div class="reading-check-header-actions">
             <button id="readingCheckExportBtn" class="secondary-btn" type="button">Exporter CSV</button>
-            <button id="readingCheckCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+            <button id="readingCheckCloseBtn" class="icon-btn" type="button" title="Fermer">âœ•</button>
           </div>
         </div>
         <div class="reading-check-tabs" role="tablist" aria-label="Affichages du suivi de lecture">
@@ -267,15 +267,15 @@
         <div class="reading-check-toolbar">
           <label id="readingCheckSearchField" class="reading-check-field" for="readingCheckSearchInput">
             <span>Rechercher un utilisateur</span>
-            <input id="readingCheckSearchInput" type="text" placeholder="Nom, prénom ou courriel">
+            <input id="readingCheckSearchInput" type="text" placeholder="Nom, prÃ©nom ou courriel">
           </label>
           <label id="readingCheckSortField" class="reading-check-field reading-check-sort-field" for="readingCheckSortSelect">
             <span>Trier par</span>
             <select id="readingCheckSortSelect">
-              <option value="name">Nom, prénom</option>
+              <option value="name">Nom, prÃ©nom</option>
               <option value="email">Adresse courriel</option>
-              <option value="connection">Dernière connexion</option>
-              <option value="activity">Dernière activité</option>
+              <option value="connection">DerniÃ¨re connexion</option>
+              <option value="activity">DerniÃ¨re activitÃ©</option>
             </select>
           </label>
           <label id="readingCheckOverviewBookField" class="reading-check-field reading-check-sort-field" for="readingCheckOverviewBookSelect" hidden>
@@ -288,11 +288,11 @@
             <span>Filtrer</span>
             <select id="readingCheckGlobalFilterSelect">
               <option value="all">Tous les utilisateurs</option>
-              <option value="started">Ont commencé</option>
+              <option value="started">Ont commencÃ©</option>
               <option value="not_started">N'ont pas lu</option>
-              <option value="completed">Ont terminé</option>
-              <option value="connected">Se sont connectés</option>
-              <option value="never_connected">Jamais connectés</option>
+              <option value="completed">Ont terminÃ©</option>
+              <option value="connected">Se sont connectÃ©s</option>
+              <option value="never_connected">Jamais connectÃ©s</option>
             </select>
           </label>
           <label class="checkbox-label reading-check-toggle">
@@ -307,7 +307,7 @@
             <div id="readingCheckUserList" class="reading-check-user-list"></div>
           </aside>
           <section id="readingCheckDetails" class="reading-check-details">
-            <div class="empty-state">Sélectionne un élève pour consulter ses données de lecture.</div>
+            <div class="empty-state">SÃ©lectionne un Ã©lÃ¨ve pour consulter ses donnÃ©es de lecture.</div>
           </section>
         </div>
       </div>
@@ -319,34 +319,34 @@
         <div class="reading-check-header">
           <div>
             <div class="font-modal-title">Suivi de lecture par livre</div>
-            <p id="bookReviewSubhead" class="admin-help modal-help">Sélectionne un livre pour consulter l'activité de lecture des élèves.</p>
+            <p id="bookReviewSubhead" class="admin-help modal-help">SÃ©lectionne un livre pour consulter l'activitÃ© de lecture des Ã©lÃ¨ves.</p>
           </div>
           <div class="reading-check-header-actions">
             <button id="bookReviewExportBtn" class="secondary-btn" type="button">Exporter CSV</button>
-            <button id="bookReviewCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+            <button id="bookReviewCloseBtn" class="icon-btn" type="button" title="Fermer">âœ•</button>
           </div>
         </div>
         <div class="reading-check-toolbar book-review-toolbar">
           <label class="reading-check-field" for="bookReviewSearchInput">
-            <span>Rechercher un élève</span>
-            <input id="bookReviewSearchInput" type="text" placeholder="Nom, prénom ou courriel">
+            <span>Rechercher un Ã©lÃ¨ve</span>
+            <input id="bookReviewSearchInput" type="text" placeholder="Nom, prÃ©nom ou courriel">
           </label>
           <label class="reading-check-field reading-check-sort-field" for="bookReviewSortSelect">
             <span>Trier par</span>
             <select id="bookReviewSortSelect">
-              <option value="name">Nom, prénom</option>
+              <option value="name">Nom, prÃ©nom</option>
               <option value="progress">Progression</option>
-              <option value="activity">Dernière activité</option>
+              <option value="activity">DerniÃ¨re activitÃ©</option>
               <option value="email">Adresse courriel</option>
             </select>
           </label>
           <label class="reading-check-field reading-check-sort-field" for="bookReviewFilterSelect">
             <span>Filtrer</span>
             <select id="bookReviewFilterSelect">
-              <option value="all">Tous les utilisateurs autorisés</option>
-              <option value="started">Seulement commencés</option>
+              <option value="all">Tous les utilisateurs autorisÃ©s</option>
+              <option value="started">Seulement commencÃ©s</option>
               <option value="notes">Seulement avec notes</option>
-              <option value="completed">Seulement terminés</option>
+              <option value="completed">Seulement terminÃ©s</option>
               <option value="not_started">Seulement non ouverts</option>
             </select>
           </label>
@@ -362,21 +362,52 @@
             <div id="bookReviewUserList" class="reading-check-user-list"></div>
           </aside>
           <section id="bookReviewDetails" class="reading-check-details">
-            <div class="empty-state">Choisis un livre, puis un élève, pour consulter la progression, les signets et les notes.</div>
+            <div class="empty-state">Choisis un livre, puis un Ã©lÃ¨ve, pour consulter la progression, les signets et les notes.</div>
           </section>
         </div>
       </div>
     </div>
 
-    <!-- Modal premier accès -->
+    <!-- Modal aide / dépannage admin -->
+    <div id="adminSupportModal" class="font-modal-overlay" hidden>
+      <div class="font-modal-panel admin-support-modal-panel">
+        <div class="reading-check-header">
+          <div>
+            <div class="font-modal-title">Aide / dépannage</div>
+            <p class="admin-help modal-help">Réservé à l'administration. Utile seulement si un appareil garde un état bloqué ou un cache corrompu.</p>
+          </div>
+          <div class="reading-check-header-actions">
+            <button id="adminSupportCloseBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+          </div>
+        </div>
+        <div class="admin-support-sections">
+          <section class="admin-support-card">
+            <h4>Réinitialiser cet appareil</h4>
+            <p>Efface uniquement les données locales de l'appareil courant: cache, reprise de lecture et file hors ligne.</p>
+            <p>Les données déjà enregistrées sur le serveur restent intactes.</p>
+            <div class="admin-support-actions">
+              <button id="adminSupportResetBtn" class="secondary-btn" type="button">Réinitialiser cet appareil</button>
+            </div>
+          </section>
+          <section class="admin-support-card">
+            <h4>Quand l'utiliser</h4>
+            <p>À utiliser si un iPad reste figé, si un livre refuse de se rouvrir ou si l'application conserve un ancien état malgré un rechargement.</p>
+            <p>Après la réinitialisation, il suffit de rouvrir l'application et de se reconnecter avec le courriel scolaire.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- Modal premier accÃ¨s -->
     <div id="profileModal" class="font-modal-overlay" hidden>
       <div class="font-modal-panel profile-modal-panel">
-        <div class="font-modal-title">Première connexion</div>
-        <p class="admin-help modal-help">Entre ton prénom et ton nom pour compléter ton accès.</p>
+        <div class="font-modal-title">PremiÃ¨re connexion</div>
+        <p class="admin-help modal-help">Entre ton prÃ©nom et ton nom pour complÃ©ter ton accÃ¨s.</p>
         <div class="profile-modal-grid">
           <label class="profile-field" for="profileFirstNameInput">
-            <span>Prénom</span>
-            <input id="profileFirstNameInput" type="text" maxlength="80" autocomplete="given-name" placeholder="Prénom">
+            <span>PrÃ©nom</span>
+            <input id="profileFirstNameInput" type="text" maxlength="80" autocomplete="given-name" placeholder="PrÃ©nom">
           </label>
           <label class="profile-field" for="profileLastNameInput">
             <span>Nom</span>
@@ -390,17 +421,17 @@
       </div>
     </div>
 
-    <!-- ═══════════════ LECTEUR ═══════════════ -->
+    <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• LECTEUR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     <section id="reader" class="reader-screen" hidden>
 
-      <!-- Barre de progression supérieure -->
+      <!-- Barre de progression supÃ©rieure -->
       <div id="topProgressBar" class="top-progress-bar" hidden>
         <div id="topProgressFill" class="top-progress-fill"></div>
         <button id="topProgressLabel" class="top-progress-label" type="button" title="Cliquer pour changer l'affichage">0 %</button>
       </div>
 
       <!-- Bouton flottant menu (le bouton retour est maintenant dans le menu) -->
-      <button id="menuToggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" title="Ouvrir le menu">☰</button>
+      <button id="menuToggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="controlPanel" title="Ouvrir le menu">â˜°</button>
 
       <!-- Superposition de chargement -->
       <div id="bookLoadingOverlay" class="book-loading-overlay" hidden>
@@ -410,7 +441,7 @@
 
       <div id="menuBackdrop" class="menu-backdrop" hidden></div>
 
-      <!-- Menu latéral -->
+      <!-- Menu latÃ©ral -->
       <aside id="controlPanel" class="control-panel" hidden>
         <div class="panel-header">
           <div>
@@ -418,8 +449,8 @@
             <div id="pageLabel" class="page-label">Page 0 / 0</div>
           </div>
           <div class="panel-header-actions">
-            <button id="backToLibraryBtn" class="ghost-btn panel-back-btn" type="button" title="Retour à la bibliothèque">← Bibliothèque</button>
-            <button id="closeMenuBtn" class="icon-btn" type="button" title="Fermer">✕</button>
+            <button id="backToLibraryBtn" class="ghost-btn panel-back-btn" type="button" title="Retour Ã  la bibliothÃ¨que">â† BibliothÃ¨que</button>
+            <button id="closeMenuBtn" class="icon-btn" type="button" title="Fermer">âœ•</button>
           </div>
         </div>
 
@@ -434,12 +465,12 @@
         </div>
 
         <div class="panel-grid primary-grid">
-          <button id="prevBtn" class="nav-btn" type="button">Précédente</button>
+          <button id="prevBtn" class="nav-btn" type="button">PrÃ©cÃ©dente</button>
           <button id="nextBtn" class="nav-btn" type="button">Suivante</button>
         </div>
 
         <div class="jump-row">
-          <label for="pageInput" class="sr-only">Aller à la page</label>
+          <label for="pageInput" class="sr-only">Aller Ã  la page</label>
           <input id="pageInput" type="number" min="1" step="1" inputmode="numeric">
           <button id="goBtn" class="secondary-btn" type="button">Aller</button>
         </div>
@@ -470,7 +501,7 @@
 
         <div class="notes-block">
           <label for="pageNoteInput" class="notes-label">Note pour cette page</label>
-          <textarea id="pageNoteInput" rows="4" maxlength="1200" placeholder="Écris une note personnelle ici."></textarea>
+          <textarea id="pageNoteInput" rows="4" maxlength="1200" placeholder="Ã‰cris une note personnelle ici."></textarea>
           <div class="notes-actions">
             <button id="saveNoteBtn" class="secondary-btn" type="button">Enregistrer la note</button>
             <button id="newNoteBtn" class="ghost-btn" type="button">Nouvelle note</button>
@@ -494,13 +525,13 @@
         </div>
       </main>
 
-      <!-- Navigation inférieure fixe -->
+      <!-- Navigation infÃ©rieure fixe -->
       <nav id="readerNav" class="reader-nav-bottom" hidden aria-label="Navigation entre pages">
-        <button id="navPrevBtn" class="nav-bottom-arrow" type="button" aria-label="Page précédente" disabled>‹</button>
+        <button id="navPrevBtn" class="nav-bottom-arrow" type="button" aria-label="Page prÃ©cÃ©dente" disabled>â€¹</button>
         <button id="navPageBtn" class="nav-bottom-page" type="button" aria-label="Affichage de la page">
-          <span id="navPageText">— / —</span>
+          <span id="navPageText">â€” / â€”</span>
         </button>
-        <button id="navNextBtn" class="nav-bottom-arrow" type="button" aria-label="Page suivante" disabled>›</button>
+        <button id="navNextBtn" class="nav-bottom-arrow" type="button" aria-label="Page suivante" disabled>â€º</button>
       </nav>
 
       <!-- Toast -->
@@ -508,12 +539,12 @@
     </section>
 
 
-    <!-- Modal aller à la page -->
+    <!-- Modal aller Ã  la page -->
     <div id="pageJumpModal" class="font-modal-overlay" hidden>
       <div class="font-modal-panel page-jump-modal-panel">
-        <div class="font-modal-title">Aller à la page</div>
+        <div class="font-modal-title">Aller Ã  la page</div>
         <div class="page-jump-row">
-          <input id="pageJumpInput" type="number" min="1" step="1" inputmode="numeric" aria-label="Numéro de page">
+          <input id="pageJumpInput" type="number" min="1" step="1" inputmode="numeric" aria-label="NumÃ©ro de page">
           <div class="page-jump-total">/ <span id="pageJumpTotal">0</span></div>
         </div>
         <div class="page-jump-actions">
@@ -528,11 +559,11 @@
       <div class="font-modal-panel">
         <div class="font-modal-title">Taille du texte</div>
         <div class="font-modal-controls">
-          <button id="fontModalMinus" class="font-modal-btn font-modal-minus" type="button" aria-label="Réduire le texte">A−</button>
+          <button id="fontModalMinus" class="font-modal-btn font-modal-minus" type="button" aria-label="RÃ©duire le texte">Aâˆ’</button>
           <div id="fontModalPreview" class="font-modal-preview" aria-hidden="true">Aa</div>
           <button id="fontModalPlus" class="font-modal-btn font-modal-plus" type="button" aria-label="Agrandir le texte">A+</button>
         </div>
-        <p class="font-modal-hint">Le changement est visible en temps réel.</p>
+        <p class="font-modal-hint">Le changement est visible en temps rÃ©el.</p>
         <button id="fontModalClose" class="nav-btn font-modal-close-btn" type="button">Fermer</button>
       </div>
     </div>
@@ -541,6 +572,7 @@
 
   <noscript>JavaScript est requis pour utiliser ce lecteur.</noscript>
   <script src="./config.js?v=20260406v31"></script>
-  <script type="module" src="./app.js?v=20260411v33"></script>
+  <script type="module" src="./app.js?v=20260411v34"></script>
 </body>
 </html>
+
