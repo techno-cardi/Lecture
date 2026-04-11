@@ -21,6 +21,8 @@ const LS_OFFLINE_QUEUE_KEY = "readerOfflineQueue_v1";
 const LS_READING_CHECK_PREFS_KEY = "readingCheckPrefs_v1";
 const LS_BOOK_REVIEW_PREFS_KEY = "bookReviewPrefs_v1";
 const MAX_PAGE_JOURNAL_SECONDS = 1800;
+const MAX_OFFLINE_QUEUE_ITEMS = 120;
+const BOOK_LOADING_WATCHDOG_MS = 15000;
 
 // ════════════════════════════════════════
 // DOM REFS
@@ -46,6 +48,7 @@ const dom = {
   bookList: document.getElementById("bookList"),
   refreshBooksBtn: document.getElementById("refreshBooksBtn"),
   libraryInstallBtn: document.getElementById("libraryInstallBtn"),
+  resetLocalDataBtn: document.getElementById("resetLocalDataBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
 
   adminPanel: document.getElementById("adminPanel"),
@@ -275,6 +278,8 @@ const state = {
   booksCacheSavedAt: 0,
   booksLoadedFromCache: false,
   bookLoadingVisibleAt: 0,
+  bookLoadingWatchdogTimer: 0,
+  lastRecoverableAction: null,
   lineSpacingMode: localStorage.getItem(LS_LINE_SPACING_KEY) || "normal",
   narrowLayout: localStorage.getItem(LS_NARROW_KEY) === "1",
   focusMode: localStorage.getItem(LS_FOCUS_KEY) === "1",
@@ -456,7 +461,25 @@ function setBookLoading(isVisible, message = "Chargement du livre en cours. Veui
   if (!dom.bookLoadingOverlay) return;
   dom.bookLoadingOverlay.hidden = !isVisible;
   state.bookLoadingVisibleAt = isVisible ? Date.now() : 0;
+  if (state.bookLoadingWatchdogTimer) {
+    window.clearTimeout(state.bookLoadingWatchdogTimer);
+    state.bookLoadingWatchdogTimer = 0;
+  }
   if (dom.bookLoadingMessage) dom.bookLoadingMessage.textContent = message || "Chargement du livre en cours. Veuillez patienter.";
+  if (isVisible) {
+    state.bookLoadingWatchdogTimer = window.setTimeout(() => {
+      state.bookLoadingWatchdogTimer = 0;
+      if (!dom.bookLoadingOverlay || dom.bookLoadingOverlay.hidden) return;
+      if ((state.textDoc || state.pdfDoc) && !state.currentPdfRenderTask) {
+        console.warn("Overlay de chargement refermée par le watchdog.");
+        setBookLoading(false);
+        return;
+      }
+      if (dom.bookLoadingMessage) {
+        dom.bookLoadingMessage.textContent = "Chargement plus long que prévu. Vérifie la connexion ou réessaie dans quelques secondes.";
+      }
+    }, BOOK_LOADING_WATCHDOG_MS);
+  }
 }
 
 function isIOSDevice() {
@@ -664,6 +687,12 @@ function clearBooksCache() {
   state.booksLoadedFromCache = false;
 }
 
+function clearRuntimeCaches() {
+  runtimeCache.textDocs.clear();
+  runtimeCache.pdfDocs.clear();
+  runtimeCache.bookLists.clear();
+}
+
 function applyBooksCacheMetadata(cacheData, loadedFromCache = false) {
   state.booksCacheSavedAt = Number(cacheData?.savedAt) || 0;
   state.booksLoadedFromCache = !!loadedFromCache && !!state.booksCacheSavedAt;
@@ -679,6 +708,46 @@ function getLibraryMetaText() {
     parts.push(`${prefix}: ${formatDateTimeWithRelative(state.booksCacheSavedAt)}`);
   }
   return parts.filter(Boolean).join(" · ");
+}
+
+function getLibrarySupportBannerHtml() {
+  const action = state.lastRecoverableAction;
+  if (action?.type === "openBook") {
+    return `
+      <div class="support-banner" role="status" aria-live="polite">
+        <div>
+          <strong>Le dernier chargement n'a pas abouti.</strong>
+          <p>${escapeHtml(action.message || `Impossible d'ouvrir ${getRecoverableBookLabel(action)}.`)}</p>
+        </div>
+        <div class="support-banner-actions">
+          <button class="secondary-btn" type="button" data-retry-last-open>Réessayer</button>
+          <button class="ghost-btn" type="button" data-reset-local>Réinitialiser cet appareil</button>
+        </div>
+      </div>
+    `;
+  }
+  return "";
+}
+
+function clearLocalSupportData() {
+  clearSession();
+  clearBooksCache();
+  clearCurrentBookState();
+  clearRecoverableAction();
+  clearRuntimeCaches();
+  state.offlineQueue = [];
+  persistOfflineQueue();
+  try { localStorage.removeItem(LS_OFFLINE_QUEUE_KEY); } catch (_) {}
+  try { localStorage.removeItem(LS_READING_CHECK_PREFS_KEY); } catch (_) {}
+  try { localStorage.removeItem(LS_BOOK_REVIEW_PREFS_KEY); } catch (_) {}
+}
+
+function resetLocalDeviceData() {
+  const confirmed = window.confirm("Réinitialiser les données locales sur cet appareil? Les caches, la reprise de lecture et la file hors ligne seront effacés.");
+  if (!confirmed) return;
+  clearLocalSupportData();
+  logoutToGate();
+  showToast("Données locales réinitialisées");
 }
 
 
@@ -2443,6 +2512,29 @@ function isReaderActive() {
   return !!state.currentBook && !dom.reader.hidden;
 }
 
+function clearRecoverableAction() {
+  state.lastRecoverableAction = null;
+}
+
+function rememberRecoverableBookOpen(book, options = {}, message = "") {
+  if (!book?.bookId) return;
+  state.lastRecoverableAction = {
+    type: "openBook",
+    bookId: String(book.bookId || ""),
+    title: String(book.title || ""),
+    preferredPage: Number(options?.preferredPage) || 0,
+    message: String(message || "Impossible d'ouvrir ce livre pour le moment."),
+    book: buildBookSnapshot(book),
+  };
+}
+
+function getRecoverableBookLabel(action = state.lastRecoverableAction) {
+  if (!action?.bookId) return "ce livre";
+  const liveBook = getBookById(action.bookId);
+  const title = String(liveBook?.title || action.title || "").trim();
+  return title || "ce livre";
+}
+
 function normalizeReaderChrome() {
   const menuOpen = !!dom.controlPanel && !dom.controlPanel.hidden;
   if (dom.menuBackdrop) dom.menuBackdrop.hidden = !menuOpen;
@@ -2460,6 +2552,42 @@ function recoverReaderAfterInterruption(reason = "resume") {
     console.warn(`Overlay de chargement refermée après reprise (${reason}).`);
     setBookLoading(false);
   }
+}
+
+function resetReaderRuntimeState() {
+  cancelActivePdfRender();
+  toggleMenu(false);
+  closePageJumpModal();
+  setBookLoading(false);
+  state.currentBook = null;
+  state.pdfDoc = null;
+  state.textDoc = null;
+  state.totalPages = 0;
+  state.sourceTotalPages = 0;
+  state.visiblePages = [];
+  state.currentPage = 1;
+  state.bookmarks = [];
+  state.notes = [];
+  state.pendingReadingSeconds = 0;
+  state.readingTickMs = 0;
+  state.currentBookOpenedAt = "";
+  state.currentPageEnteredAt = 0;
+}
+
+function handleBookOpenFailure(book, error, options = {}) {
+  const { preferredPage = 0, showSupportBanner = true } = options || {};
+  const message = error?.message || "Impossible d'ouvrir le livre.";
+  console.error(error);
+  state.openingBookId = "";
+  clearCurrentBookState();
+  resetReaderRuntimeState();
+  if (showSupportBanner) {
+    rememberRecoverableBookOpen(book, { preferredPage }, message);
+  }
+  switchScreen("library");
+  renderBookList();
+  renderAdminBooks();
+  showToast(message);
 }
 
 function cleanLoginQueryFromUrl() {
@@ -2543,6 +2671,7 @@ function resetSensitiveUiState() {
   cancelActivePdfRender();
   toggleMenu(false);
   setBookLoading(false);
+  clearRecoverableAction();
   state.userProfile = { firstName: "", lastName: "" };
   state.books = [];
   state.currentBook = null;
@@ -3036,32 +3165,87 @@ function renderNotes() {
 }
 
 
+function sanitizeOfflineQueue(queue = []) {
+  return (Array.isArray(queue) ? queue : [])
+    .filter((item) => item && typeof item.action === "string")
+    .slice(-MAX_OFFLINE_QUEUE_ITEMS);
+}
+
+function mergeOfflineAction(queue, action, params) {
+  if (!Array.isArray(queue) || !queue.length) return false;
+  if (action === "saveProgress") {
+    for (let index = queue.length - 1; index >= 0; index -= 1) {
+      const item = queue[index];
+      if (item?.action !== "saveProgress") continue;
+      const sameBook = normalizeEmail(item.params?.email) === normalizeEmail(params?.email)
+        && String(item.params?.bookId || "") === String(params?.bookId || "");
+      if (!sameBook) continue;
+      item.params = {
+        ...item.params,
+        ...params,
+        readSecondsDelta: Math.min(7200, (Number(item.params?.readSecondsDelta) || 0) + (Number(params?.readSecondsDelta) || 0)),
+        lastOpenedAt: item.params?.lastOpenedAt || params?.lastOpenedAt || "",
+      };
+      item.queuedAt = new Date().toISOString();
+      return true;
+    }
+  }
+  if (action === "trackPageView") {
+    for (let index = queue.length - 1; index >= 0; index -= 1) {
+      const item = queue[index];
+      if (item?.action !== "trackPageView") continue;
+      const samePage = normalizeEmail(item.params?.email) === normalizeEmail(params?.email)
+        && String(item.params?.bookId || "") === String(params?.bookId || "")
+        && Number(item.params?.page) === Number(params?.page);
+      if (!samePage) continue;
+      item.params = {
+        ...item.params,
+        ...params,
+        secondsSpent: Math.min(MAX_PAGE_JOURNAL_SECONDS, (Number(item.params?.secondsSpent) || 0) + (Number(params?.secondsSpent) || 0)),
+      };
+      item.queuedAt = new Date().toISOString();
+      return true;
+    }
+  }
+  return false;
+}
+
 function loadOfflineQueue() {
   try {
-    state.offlineQueue = JSON.parse(localStorage.getItem(LS_OFFLINE_QUEUE_KEY) || '[]');
-    if (!Array.isArray(state.offlineQueue)) state.offlineQueue = [];
+    state.offlineQueue = sanitizeOfflineQueue(JSON.parse(localStorage.getItem(LS_OFFLINE_QUEUE_KEY) || "[]"));
   } catch (_) {
     state.offlineQueue = [];
   }
 }
 
 function persistOfflineQueue() {
+  state.offlineQueue = sanitizeOfflineQueue(state.offlineQueue);
   try {
     localStorage.setItem(LS_OFFLINE_QUEUE_KEY, JSON.stringify(state.offlineQueue || []));
   } catch (_) {}
 }
 
 function queueOfflineAction(action, params, statusMessage = 'Action enregistrée hors ligne. Synchronisation en attente.') {
-  state.offlineQueue = Array.isArray(state.offlineQueue) ? state.offlineQueue : [];
-  state.offlineQueue.push({ action, params, queuedAt: new Date().toISOString() });
+  state.offlineQueue = sanitizeOfflineQueue(state.offlineQueue);
+  const normalizedParams = { ...(params || {}) };
+  const merged = mergeOfflineAction(state.offlineQueue, action, normalizedParams);
+  if (!merged) {
+    state.offlineQueue.push({ action, params: normalizedParams, queuedAt: new Date().toISOString() });
+  }
+  const trimmed = state.offlineQueue.length > MAX_OFFLINE_QUEUE_ITEMS;
+  if (trimmed) {
+    state.offlineQueue = state.offlineQueue.slice(-MAX_OFFLINE_QUEUE_ITEMS);
+  }
   persistOfflineQueue();
   setSaveStatus('Synchronisation en attente', 'error');
   if (action.indexOf('Bookmark') !== -1) setBookmarkStatus(statusMessage, 'error');
   if (action.indexOf('Note') !== -1) setNoteStatus(statusMessage, 'error');
+  if (trimmed) showToast("Historique local allégé pour garder l'application stable");
 }
 
 async function syncOfflineQueue() {
   if (!state.authVerified || !state.email || state.syncingOfflineQueue) return;
+  state.offlineQueue = sanitizeOfflineQueue(state.offlineQueue);
   if (!Array.isArray(state.offlineQueue) || !state.offlineQueue.length) return;
   state.syncingOfflineQueue = true;
   const remaining = [];
@@ -3366,12 +3550,13 @@ function renderBookList() {
   }
   updateLibraryGreeting();
   dom.libraryMeta.textContent = getLibraryMetaText();
+  const supportBanner = getLibrarySupportBannerHtml();
   const books = state.books.filter((b) => b.published || state.adminUnlocked);
   if (!books.length) {
-    dom.bookList.innerHTML = `<div class="empty-state">Aucun livre publié pour le moment.</div>`;
+    dom.bookList.innerHTML = `${supportBanner}<div class="empty-state">Aucun livre publié pour le moment.</div>`;
     return;
   }
-  dom.bookList.innerHTML = books.map((book) => `
+  dom.bookList.innerHTML = `${supportBanner}${books.map((book) => `
     <article class="book-card">
       ${coverHtml(book)}
       <div>
@@ -3391,7 +3576,7 @@ function renderBookList() {
         </div>
       </div>
     </article>
-  `).join("");
+  `).join("")}`;
 }
 
 function renderAdminBooks() {
@@ -3886,6 +4071,7 @@ async function openBook(book, options = {}) {
       renderNotes();
     });
     void saveProgress({ immediate: true, showError: false, showSuccess: false });
+    clearRecoverableAction();
   } finally {
     setBookLoading(false);
   }
@@ -4639,6 +4825,7 @@ function logoutToGate() {
   state.email = "";
   state.authVerified = false;
   state.userProfile = { firstName: "", lastName: "" };
+  clearRecoverableAction();
   resetAdminState();
   state.books = [];
   state.currentBook = null;
@@ -4729,8 +4916,9 @@ async function finishLoginFlow(options = {}) {
           return;
         }
       } catch (error) {
-        if (!fromRestore) throw error;
-        showToast("Impossible de rouvrir le dernier livre");
+        rememberRecoverableBookOpen(savedBook || buildBookSnapshot(savedBookState?.book), { preferredPage: Number(savedBookState?.page) || 0 }, error?.message || "Impossible de rouvrir le dernier livre");
+        resetReaderRuntimeState();
+        if (fromRestore) showToast("Impossible de rouvrir le dernier livre");
       } finally {
         if (!state.currentBook) setBookLoading(false);
       }
@@ -4779,8 +4967,9 @@ async function finishLoginFlow(options = {}) {
         return;
       }
     } catch (error) {
-      if (!fromRestore) throw error;
-      showToast("Impossible de rouvrir le dernier livre");
+      rememberRecoverableBookOpen(savedBook || buildBookSnapshot(savedBookState?.book), { preferredPage: Number(savedBookState?.page) || 0 }, error?.message || "Impossible de rouvrir le dernier livre");
+      resetReaderRuntimeState();
+      if (fromRestore) showToast("Impossible de rouvrir le dernier livre");
     } finally {
       if (!state.currentBook) setBookLoading(false);
     }
@@ -5158,6 +5347,7 @@ function attachEvents() {
     try { await refreshBooks({ showFeedback: true, origin: "library" }); }
     catch (e) { console.error(e); showToast(e.message || "Impossible d'actualiser"); }
   });
+  on(dom.resetLocalDataBtn, "click", resetLocalDeviceData);
 
   // Lecteur — retour
   on(dom.backToLibraryBtn, "click", async () => {
@@ -5401,6 +5591,33 @@ function attachEvents() {
 
   // Délégations — bibliothèque
   on(dom.bookList, "click", async (e) => {
+    const retryBtn = e.target.closest("[data-retry-last-open]");
+    if (retryBtn) {
+      const action = state.lastRecoverableAction;
+      if (!action?.bookId || state.openingBookId) return;
+      const book = getBookById(action.bookId) || buildBookSnapshot(action.book);
+      if (!book) {
+        showToast("Le livre n'est plus disponible");
+        return;
+      }
+      state.openingBookId = action.bookId;
+      renderBookList();
+      try {
+        await openBook(book, { preferredPage: Number(action.preferredPage) || 0 });
+      } catch (error) {
+        handleBookOpenFailure(book, error, { preferredPage: Number(action.preferredPage) || 0 });
+      } finally {
+        state.openingBookId = "";
+        if (!dom.library.hidden) renderBookList();
+        if (canSeeAdminPanel()) renderAdminBooks();
+      }
+      return;
+    }
+    const resetBtn = e.target.closest("[data-reset-local]");
+    if (resetBtn) {
+      resetLocalDeviceData();
+      return;
+    }
     const btn = e.target.closest("[data-open-book]");
     if (!btn || state.openingBookId) return;
     const book = getBookById(btn.dataset.openBook);
@@ -5409,6 +5626,8 @@ function attachEvents() {
     renderBookList();
     try {
       await openBook(book);
+    } catch (error) {
+      handleBookOpenFailure(book, error);
     } finally {
       state.openingBookId = "";
       if (!dom.library.hidden) renderBookList();
@@ -5433,6 +5652,8 @@ function attachEvents() {
       if (!dom.library.hidden) renderBookList();
       try {
         await openBook(b);
+      } catch (error) {
+        handleBookOpenFailure(b, error);
       } finally {
         state.openingBookId = "";
         if (!dom.library.hidden) renderBookList();
