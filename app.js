@@ -285,7 +285,7 @@ const state = {
   lastRecoverableAction: null,
   lineSpacingMode: localStorage.getItem(LS_LINE_SPACING_KEY) || "normal",
   narrowLayout: localStorage.getItem(LS_NARROW_KEY) === "1",
-  focusMode: localStorage.getItem(LS_FOCUS_KEY) === "1",
+  focusMode: false,
   offlineQueue: [],
   syncingOfflineQueue: false,
   deferredInstallPrompt: null,
